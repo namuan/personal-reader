@@ -5,6 +5,10 @@ subreddit feeds or authenticated private listings, stores them locally in SQLite
 and supports offline reading with read/unread tracking. Built for personal
 deployment on the owner's iPhone.
 
+<p align="center">
+  <img src="assets/app.png" alt="Personal Reader showing Reddit story cards" width="320">
+</p>
+
 ## Architecture
 
 ```text
