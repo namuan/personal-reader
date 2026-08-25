@@ -1,7 +1,8 @@
 import Foundation
 import GRDB
 
-public struct Story: Codable, Equatable, FetchableRecord, Identifiable, PersistableRecord, Sendable
+public struct Story: Codable, Equatable, Hashable, FetchableRecord, Identifiable, PersistableRecord,
+  Sendable
 {
   public static let databaseTableName = "stories"
 
@@ -11,6 +12,7 @@ public struct Story: Codable, Equatable, FetchableRecord, Identifiable, Persista
   public var author: String
   public var subreddit: String
   public var publishedAt: Int64
+  public var link: String
   public var isRead: Bool
 
   public init(
@@ -20,6 +22,7 @@ public struct Story: Codable, Equatable, FetchableRecord, Identifiable, Persista
     author: String,
     subreddit: String,
     publishedAt: Int64,
+    link: String = "",
     isRead: Bool = false
   ) {
     self.id = id
@@ -28,11 +31,17 @@ public struct Story: Codable, Equatable, FetchableRecord, Identifiable, Persista
     self.author = author
     self.subreddit = subreddit
     self.publishedAt = publishedAt
+    self.link = link
     self.isRead = isRead
   }
 
   public var publishedDate: Date {
     Date(timeIntervalSince1970: TimeInterval(publishedAt))
+  }
+
+  public var originalURL: URL? {
+    guard !link.isEmpty else { return nil }
+    return URL(string: link)
   }
 
   enum CodingKeys: String, CodingKey {
@@ -42,6 +51,7 @@ public struct Story: Codable, Equatable, FetchableRecord, Identifiable, Persista
     case author
     case subreddit
     case publishedAt = "published_at"
+    case link
     case isRead = "is_read"
   }
 
@@ -52,6 +62,7 @@ public struct Story: Codable, Equatable, FetchableRecord, Identifiable, Persista
     case author
     case subreddit
     case publishedAt = "published_at"
+    case link
     case isRead = "is_read"
   }
 }

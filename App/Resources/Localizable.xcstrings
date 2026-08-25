@@ -1,0 +1,252 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "%lld" : {
+
+    },
+    "All" : {
+
+    },
+    "All caught up" : {
+
+    },
+    "All stories" : {
+
+    },
+    "Automatic cleanup keeps the library current" : {
+
+    },
+    "Browse" : {
+
+    },
+    "Browse feed source" : {
+
+    },
+    "Cancel" : {
+
+    },
+    "Clear credentials and local data" : {
+
+    },
+    "Clear credentials and local data?" : {
+
+    },
+    "Clear everything" : {
+
+    },
+    "Connected, but the selected feed returned no entries. Choose another feed source or check that the account has recent activity." : {
+
+    },
+    "Connected. %lld recent %@ found." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Connected. %1$lld recent %2$@ found."
+          }
+        }
+      }
+    },
+    "Data" : {
+
+    },
+    "Done" : {
+
+    },
+    "Downloaded stories" : {
+
+    },
+    "e.g. readinginbed" : {
+
+    },
+    "e.g. shortstories, writingprompts" : {
+
+    },
+    "Every downloaded story has been read." : {
+
+    },
+    "Feed source" : {
+
+    },
+    "Filter stories" : {
+
+    },
+    "Last sync" : {
+
+    },
+    "Listing" : {
+
+    },
+    "No listing entries" : {
+
+    },
+    "No stories yet" : {
+
+    },
+    "No text content" : {
+
+    },
+    "Open original on Reddit" : {
+
+    },
+    "Opening your library…" : {
+
+    },
+    "Paste the feed token" : {
+
+    },
+    "Personal Reader" : {
+
+    },
+    "Personal Reader downloads posts from selected subreddits or your authenticated Reddit listings. Reddit issues one personal feed token per account at reddit.com/prefs/feeds — it acts like a password, so it is stored only in this device's Keychain and is never included in backups or logs." : {
+
+    },
+    "Preparing story content" : {
+
+    },
+    "Preparing story…" : {
+
+    },
+    "Privacy: the app sends requests only to reddit.com for your configured feed and opens links you choose. It contains no analytics or tracking." : {
+
+    },
+    "Private feed token" : {
+
+    },
+    "Private listings" : {
+
+    },
+    "Private RSS feed token" : {
+
+    },
+    "Pull down to sync your feed, or check your connection. Downloaded content stays readable offline." : {
+
+    },
+    "Reddit account" : {
+
+    },
+    "Reddit username" : {
+
+    },
+    "Replace RSS token" : {
+
+    },
+    "Retention" : {
+
+    },
+    "RSS token" : {
+
+    },
+    "Save and start reading" : {
+
+    },
+    "Save changes" : {
+
+    },
+    "Saved in Keychain" : {
+
+    },
+    "Set up your feed" : {
+
+    },
+    "Settings" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings"
+          }
+        }
+      }
+    },
+    "Show" : {
+
+    },
+    "Stories" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stories"
+          }
+        }
+      }
+    },
+    "Stories from these subreddits are combined into one feed." : {
+
+    },
+    "Stories older than 14 days are removed" : {
+
+    },
+    "story.count" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%d story found."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%d stories found."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Subreddits" : {
+
+    },
+    "Subreddits, comma separated" : {
+
+    },
+    "Subreddits, separated by commas" : {
+
+    },
+    "Sync status: %@" : {
+
+    },
+    "Test connection" : {
+
+    },
+    "The local library could not be opened. Reinstall the app to reset it." : {
+
+    },
+    "The token authenticates all private listings. It acts like a password and lives only in this device's Keychain." : {
+
+    },
+    "This feed entry does not include a readable body. Open the original post instead." : {
+
+    },
+    "This removes the RSS token, your preferences, and every downloaded story. You will return to setup." : {
+
+    },
+    "Token" : {
+
+    },
+    "Unread" : {
+
+    },
+    "Unread only" : {
+
+    },
+    "Up to 50 listing entries are kept" : {
+
+    },
+    "Username" : {
+
+    },
+    "Version" : {
+
+    }
+  },
+  "version" : "1.0"
+}

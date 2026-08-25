@@ -3,3 +3,12 @@
 DerivedData/
 *.xcuserstate
 xcuserdata/
+*.xcresult/
+*.xcarchive/
+*.mobileprovision
+*.provisionprofile
+*.p12
+*.cer
+.env
+.env.*
+.DS_Store

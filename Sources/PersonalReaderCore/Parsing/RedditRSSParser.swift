@@ -16,6 +16,7 @@ public struct RedditRSSParser: StoryParsing, Sendable {
     let parser = XMLParser(data: data)
     parser.delegate = delegate
     parser.shouldProcessNamespaces = false
+    parser.shouldReportNamespacePrefixes = true
 
     guard parser.parse() else {
       throw RSSParserError.invalidXML(parser.parserError?.localizedDescription)
@@ -29,17 +30,34 @@ public enum RSSParserError: Error, Equatable {
 }
 
 private final class RSSParserDelegate: NSObject, XMLParserDelegate {
-  private struct Item {
-    var values: [String: String] = [:]
+  private static let rfc822Formatters: [DateFormatter] = [
+    makeFormatter("EEE, dd MMM yyyy HH:mm:ss Z"),
+    makeFormatter("EEE, dd MMM yyyy HH:mm:ss zzz"),
+    makeFormatter("EEE, dd MMM yyyy HH:mm Z"),
+  ]
+  private static nonisolated(unsafe) let iso8601Formatter: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter
+  }()
+  private static nonisolated(unsafe) let iso8601NoFractionFormatter = ISO8601DateFormatter()
 
-    mutating func append(_ text: String, to element: String) {
-      values[element, default: ""].append(text)
-    }
+  private static func makeFormatter(_ format: String) -> DateFormatter {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    formatter.dateFormat = format
+    return formatter
   }
 
   private let sanitizer: HTMLSanitizer
-  private var currentElement: String?
-  private var currentItem: Item?
+  private var currentItemValues: [String: String] = [:]
+  private var currentElementName: String?
+  private var currentValueBuffer = ""
+  private var insideItem = false
+  private var categoryTerm: String?
+  private var linkHref: String?
+  private var alternateLinkHref: String?
 
   private(set) var stories: [Story] = []
 
@@ -54,22 +72,54 @@ private final class RSSParserDelegate: NSObject, XMLParserDelegate {
     qualifiedName qName: String?,
     attributes attributeDict: [String: String] = [:]
   ) {
-    let element = qName ?? elementName
-    if element == "item" {
-      currentItem = Item()
+    let element = Self.localName(qName ?? elementName)
+    switch element {
+    case "item", "entry":
+      insideItem = true
+      currentItemValues = [:]
+      currentElementName = nil
+      currentValueBuffer = ""
+      categoryTerm = nil
+      linkHref = nil
+      alternateLinkHref = nil
+    case _ where insideItem:
+      switch element {
+      case "category":
+        if let term = attributeDict["term"], categoryTerm == nil {
+          categoryTerm = term
+        }
+      case "link":
+        if let href = attributeDict["href"] {
+          if attributeDict["rel"] == "alternate" {
+            if alternateLinkHref == nil {
+              alternateLinkHref = href
+            }
+          } else if linkHref == nil {
+            linkHref = href
+          }
+        }
+      default:
+        break
+      }
+      currentElementName = element
+      currentValueBuffer = ""
+    default:
+      break
     }
-    currentElement = element
   }
 
   func parser(_ parser: XMLParser, foundCharacters string: String) {
-    append(string)
+    guard insideItem, currentElementName != nil else { return }
+    currentValueBuffer += string
   }
 
   func parser(_ parser: XMLParser, foundCDATA cdataBlock: Data) {
-    guard let string = String(data: cdataBlock, encoding: .utf8) else {
+    guard insideItem, currentElementName != nil,
+      let string = String(data: cdataBlock, encoding: .utf8)
+    else {
       return
     }
-    append(string)
+    currentValueBuffer += string
   }
 
   func parser(
@@ -78,39 +128,59 @@ private final class RSSParserDelegate: NSObject, XMLParserDelegate {
     namespaceURI: String?,
     qualifiedName qName: String?
   ) {
-    let element = qName ?? elementName
-    if element == "item", let item = currentItem, let story = makeStory(from: item) {
-      stories.append(story)
-      currentItem = nil
-    }
-    currentElement = nil
-  }
+    let element = Self.localName(qName ?? elementName)
 
-  private func append(_ string: String) {
-    guard let currentElement, currentItem != nil else {
+    if insideItem, let openElement = currentElementName, openElement == element {
+      if currentItemValues[element] == nil {
+        currentItemValues[element] = currentValueBuffer.trimmingCharacters(
+          in: .whitespacesAndNewlines
+        )
+      }
+      currentElementName = nil
+      currentValueBuffer = ""
       return
     }
-    currentItem?.append(string, to: currentElement)
+
+    if element == "item" || element == "entry", insideItem {
+      insideItem = false
+      currentElementName = nil
+      if let story = makeStory(from: currentItemValues) {
+        stories.append(story)
+      }
+      currentItemValues = [:]
+      categoryTerm = nil
+      linkHref = nil
+      alternateLinkHref = nil
+    }
   }
 
-  private func makeStory(from item: Item) -> Story? {
-    let title = normalized(item.values["title"])
-    let link = normalized(item.values["link"])
-    let guid = normalized(item.values["guid"])
-    let rawContent = item.values["content:encoded"] ?? item.values["description"] ?? ""
-
-    guard !title.isEmpty else {
-      return nil
+  private static func localName(_ name: String) -> String {
+    guard let colon = name.firstIndex(of: ":") else {
+      return name.lowercased()
     }
-    guard let id = redditID(guid: guid, link: link), !id.isEmpty else {
-      return nil
-    }
+    return String(name[name.index(after: colon)...]).lowercased()
+  }
 
-    let author = normalized(item.values["dc:creator"] ?? item.values["author"])
-      .replacingOccurrences(of: "u/", with: "", options: [.anchored, .caseInsensitive])
-    let category = normalized(item.values["category"])
+  private func makeStory(from values: [String: String]) -> Story? {
+    let title = values["title"] ?? ""
+    guard !title.isEmpty else { return nil }
+
+    let link = firstNonEmpty(alternateLinkHref, linkHref, values["link"])
+    let guid = firstNonEmpty(values["guid"], values["id"])
+    guard let id = redditID(guid: guid, link: link) else { return nil }
+
+    let author = normalizedAuthor(
+      firstNonEmpty(values["creator"], values["name"], values["author"])
+    )
+    let category = firstNonEmpty(categoryTerm, values["category"])
     let subreddit = normalizedSubreddit(category: category, link: link)
-    let publishedAt = parseDate(normalized(item.values["pubDate"]))
+    let publishedAt = parseDate(
+      firstNonEmpty(values["pubdate"], values["date"], values["published"], values["updated"])
+    )
+    let rawContent =
+      firstNonEmpty(
+        values["encoded"], values["content"], values["summary"], values["description"]
+      ) ?? ""
 
     return Story(
       id: id,
@@ -118,38 +188,79 @@ private final class RSSParserDelegate: NSObject, XMLParserDelegate {
       contentBody: sanitizer.sanitize(rawContent),
       author: author,
       subreddit: subreddit,
-      publishedAt: publishedAt
+      publishedAt: publishedAt,
+      link: link ?? ""
     )
   }
 
-  private func redditID(guid: String, link: String) -> String? {
-    if guid.hasPrefix("t3_") {
-      return guid
-    }
-
-    for candidate in [guid, link] {
-      let components = candidate.split(separator: "/").map(String.init)
-      guard let commentsIndex = components.firstIndex(of: "comments") else {
-        continue
+  private func firstNonEmpty(_ candidates: String?...) -> String? {
+    for candidate in candidates {
+      if let candidate, !candidate.isEmpty {
+        return candidate
       }
-      let idIndex = components.index(after: commentsIndex)
-      guard components.indices.contains(idIndex) else {
-        continue
-      }
-      return "t3_\(components[idIndex])"
     }
-
-    return guid.isEmpty ? nil : guid
+    return nil
   }
 
-  private func normalizedSubreddit(category: String, link: String) -> String {
-    if !category.isEmpty {
-      return
-        category
-        .replacingOccurrences(of: "/r/", with: "", options: [.anchored, .caseInsensitive])
-        .replacingOccurrences(of: "r/", with: "", options: [.anchored, .caseInsensitive])
+  private func redditID(guid: String?, link: String?) -> String? {
+    if let guid, isStableRedditID(guid) {
+      return guid
+    }
+    for candidate in [guid, link] {
+      guard let candidate, !candidate.isEmpty else { continue }
+      if let id = idFromRedditPath(candidate) {
+        return id
+      }
+    }
+    if let guid, !guid.isEmpty {
+      return guid
+    }
+    return nil
+  }
+
+  private func isStableRedditID(_ candidate: String) -> Bool {
+    candidate.range(of: "^t[1-6]_[A-Za-z0-9]+$", options: .regularExpression) != nil
+  }
+
+  private func idFromRedditPath(_ candidate: String) -> String? {
+    let components = candidate.split(separator: "/").map(String.init)
+    guard let commentsIndex = components.firstIndex(of: "comments") else {
+      return nil
+    }
+    let idIndex = components.index(after: commentsIndex)
+    guard components.indices.contains(idIndex), !components[idIndex].isEmpty else {
+      return nil
+    }
+    return "t3_\(components[idIndex])"
+  }
+
+  private func normalizedAuthor(_ value: String?) -> String {
+    guard var author = value, !author.isEmpty else { return "" }
+    for prefix in ["/u/", "u/", "/user/", "user/"] {
+      if author.lowercased().hasPrefix(prefix) {
+        author = String(author.dropFirst(prefix.count))
+        break
+      }
+    }
+    return author.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private func normalizedSubreddit(category: String?, link: String?) -> String {
+    if let category, !category.isEmpty {
+      var name = category
+      for prefix in ["/r/", "r/"] {
+        if name.lowercased().hasPrefix(prefix) {
+          name = String(name.dropFirst(prefix.count))
+          break
+        }
+      }
+      if let slash = name.firstIndex(of: "/") {
+        name = String(name[..<slash])
+      }
+      return name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    guard let link else { return "" }
     let components = link.split(separator: "/").map(String.init)
     guard let subredditIndex = components.firstIndex(of: "r") else {
       return ""
@@ -161,25 +272,19 @@ private final class RSSParserDelegate: NSObject, XMLParserDelegate {
     return components[nameIndex]
   }
 
-  private func parseDate(_ string: String) -> Int64 {
-    let formats = [
-      "EEE, dd MMM yyyy HH:mm:ss Z",
-      "EEE, dd MMM yyyy HH:mm:ss zzz",
-    ]
-
-    for format in formats {
-      let formatter = DateFormatter()
-      formatter.locale = Locale(identifier: "en_US_POSIX")
-      formatter.timeZone = TimeZone(secondsFromGMT: 0)
-      formatter.dateFormat = format
+  private func parseDate(_ string: String?) -> Int64 {
+    guard let string, !string.isEmpty else { return 0 }
+    for formatter in Self.rfc822Formatters {
       if let date = formatter.date(from: string) {
         return Int64(date.timeIntervalSince1970)
       }
     }
+    if let date = Self.iso8601Formatter.date(from: string) {
+      return Int64(date.timeIntervalSince1970)
+    }
+    if let date = Self.iso8601NoFractionFormatter.date(from: string) {
+      return Int64(date.timeIntervalSince1970)
+    }
     return 0
-  }
-
-  private func normalized(_ value: String?) -> String {
-    value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
   }
 }
