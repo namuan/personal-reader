@@ -3,7 +3,7 @@ import PersonalReaderCore
 
 @MainActor
 final class BackgroundRefreshCoordinator {
-  static let taskIdentifier = "com.example.PersonalReader.backgroundRefresh"
+  static let taskIdentifier = "com.github.namuan.personalreader.backgroundRefresh"
 
   private weak var model: AppModel?
   private var refreshTask: Task<Void, Never>?

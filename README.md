@@ -65,7 +65,7 @@ target.
 1. Open `PersonalReaderApp.xcodeproj` in Xcode.
 2. Select the **PersonalReaderApp** target → Signing & Capabilities.
 3. Choose your Apple ID's **Personal Team** (or a paid development team) and a
-   unique bundle identifier if `com.example.personalreader` is taken.
+   unique bundle identifier if `com.github.namuan.personalreader` is taken.
 4. Connect your iPhone (Developer Mode enabled), select it as the run
    destination, and Run with the Debug configuration.
 5. Approve the developer identity on the phone if iOS asks.
@@ -86,7 +86,7 @@ the app. Override detection when needed:
 
 ```sh
 make device-install DEVICE_ID=00008110-... TEAM_ID=ABCDE12345
-make device-install APP_BUNDLE_ID=com.example.personalreader
+make device-install APP_BUNDLE_ID=com.github.namuan.personalreader
 ```
 
 If Xcode reports `No Account for Team`, add the Apple ID under Xcode Settings →

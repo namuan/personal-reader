@@ -1,6 +1,6 @@
 SWIFT ?= swift
 SIMULATOR ?= platform=iOS Simulator,name=iPhone 17 Pro
-APP_BUNDLE_ID ?= com.example.personalreader
+APP_BUNDLE_ID ?= com.github.namuan.personalreader
 DEVICE_BUILD_DIR ?= DerivedData/Device
 DEVICE_ID ?= $(shell xcodebuild -project PersonalReaderApp.xcodeproj -scheme PersonalReaderApp -showdestinations 2>/dev/null | sed -n 's/.*{ platform:iOS,[^}]*id:\([^,}]*\),.*/\1/p' | grep -v placeholder | head -1)
 TEAM_ID ?= $(shell TEAM=$$(ls -t ~/Library/Developer/Xcode/UserData/Capabilities/capabilities-*-*-bundle.json 2>/dev/null | sed -E 's/.*-([A-Z0-9]{10})-bundle\.json/\1/' | head -1); if [ -n "$$TEAM" ]; then echo "$$TEAM"; else security find-identity -v -p codesigning 2>/dev/null | awk -F'[()]' '/Apple Development:/{gsub(/^[ \t]+|[ \t]+$$/, "", $$3); print $$3; exit}'; fi)

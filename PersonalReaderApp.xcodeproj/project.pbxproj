@@ -290,7 +290,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.PersonalReaderAppTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.github.namuan.PersonalReaderAppTests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PersonalReaderApp.app/PersonalReaderApp";
@@ -370,7 +370,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.personalreader;
+				PRODUCT_BUNDLE_IDENTIFIER = com.github.namuan.personalreader;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -386,7 +386,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.PersonalReaderAppTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.github.namuan.PersonalReaderAppTests;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PersonalReaderApp.app/PersonalReaderApp";
@@ -406,7 +406,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.personalreader;
+				PRODUCT_BUNDLE_IDENTIFIER = com.github.namuan.personalreader;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
 			};

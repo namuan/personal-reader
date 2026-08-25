@@ -12,7 +12,7 @@ public struct KeychainTokenStore: TokenStoring {
   private let account: String
 
   public init(
-    service: String = "com.example.personalreader.rss-token",
+    service: String = "com.github.namuan.personalreader.rss-token",
     account: String = "rss-token"
   ) {
     self.service = service
