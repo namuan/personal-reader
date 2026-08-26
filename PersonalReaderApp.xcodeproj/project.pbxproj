@@ -18,8 +18,10 @@
 		5A90E496AB8BFC08E9BA6466 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A49E91359FD66AFD9F2F5468 /* AppModel.swift */; };
 		735196AA87F9E9FE64513D18 /* ReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC8AE143C54070A4C6166ACF /* ReaderView.swift */; };
 		8577264486BDF7CCF1DBBD60 /* PersonalReaderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D71508CCCFBB985BBA88455A /* PersonalReaderApp.swift */; };
+		900B7679087170AC1BE34F5D /* FeedEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F8EF687B77D9B1522C551D5 /* FeedEditorView.swift */; };
 		9043AC0570205196AD093E92 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9250794BA9381F4D09E5F5B /* SettingsView.swift */; };
 		B55B58498A3198233EBA03A7 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 5F46435C11C336408991F3F3 /* PrivacyInfo.xcprivacy */; };
+		BC43B2B2E3C9C6A604BD2A4B /* FeedManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 188BDA532D5AAE80470712F8 /* FeedManagementView.swift */; };
 		CDCE2C1F3139C539FDAAB63B /* PrivateListingPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92A6096884851BC20CF12E3D /* PrivateListingPresentation.swift */; };
 		E8F22AB19BEA8F8537D8D381 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = FE931B35B77072864B5D31EE /* Localizable.xcstrings */; };
 		FD15923B5E7E9CF3987FBA6A /* RichTextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80DD86EB00E168F42761CC17 /* RichTextView.swift */; };
@@ -37,6 +39,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		0F8EF687B77D9B1522C551D5 /* FeedEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedEditorView.swift; sourceTree = "<group>"; };
+		188BDA532D5AAE80470712F8 /* FeedManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedManagementView.swift; sourceTree = "<group>"; };
 		245C4089EBAF0AF807F4F05A /* BackgroundRefreshCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundRefreshCoordinator.swift; sourceTree = "<group>"; };
 		2E25913A7A83CF76CF8E2E95 /* PersonalReaderApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = PersonalReaderApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		3660095803F5D8DC69B7E70A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -119,6 +123,8 @@
 			isa = PBXGroup;
 			children = (
 				B67B799C3A7EC4984A0A3EFB /* ConnectionResultLabel.swift */,
+				0F8EF687B77D9B1522C551D5 /* FeedEditorView.swift */,
+				188BDA532D5AAE80470712F8 /* FeedManagementView.swift */,
 				CC8AE143C54070A4C6166ACF /* ReaderView.swift */,
 				80DD86EB00E168F42761CC17 /* RichTextView.swift */,
 				E68837ED416BED6288D0D0B8 /* RootView.swift */,
@@ -250,6 +256,8 @@
 				5A90E496AB8BFC08E9BA6466 /* AppModel.swift in Sources */,
 				FD2463A805AA013B0A59A51E /* BackgroundRefreshCoordinator.swift in Sources */,
 				38B00C3B094BF9F73557948E /* ConnectionResultLabel.swift in Sources */,
+				900B7679087170AC1BE34F5D /* FeedEditorView.swift in Sources */,
+				BC43B2B2E3C9C6A604BD2A4B /* FeedManagementView.swift in Sources */,
 				8577264486BDF7CCF1DBBD60 /* PersonalReaderApp.swift in Sources */,
 				CDCE2C1F3139C539FDAAB63B /* PrivateListingPresentation.swift in Sources */,
 				735196AA87F9E9FE64513D18 /* ReaderView.swift in Sources */,

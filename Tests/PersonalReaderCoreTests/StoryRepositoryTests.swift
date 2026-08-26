@@ -42,7 +42,8 @@ final class StoryRepositoryTests: XCTestCase {
       contentBody: "<p>Body</p>",
       author: "author",
       subreddit: "shortstories",
-      publishedAt: publishedAt
+      publishedAt: publishedAt,
+      sourceId: FeedSourceRecord.builtInRedditID()
     )
   }
 }

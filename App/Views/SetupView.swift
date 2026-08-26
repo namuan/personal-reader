@@ -6,10 +6,8 @@ struct SetupView: View {
 
   @State private var username = ""
   @State private var token = ""
-  @State private var subredditText = ""
-  @State private var feedMode: FeedMode = .subreddits
-  @State private var privateListing: RedditPrivateListing = .frontPage
-  @State private var frontPageSort: RedditFrontPageSort = .best
+  @State private var feedMode: FeedMode = .subscribed
+  @State private var privateListing: RedditPrivateListing = .saved
   @State private var connectionResult: AppModel.ConnectionOutcome?
   @State private var saveError: String?
   @State private var isTesting = false
@@ -18,7 +16,7 @@ struct SetupView: View {
     Form {
       Section {
         Text(
-          "Personal Reader downloads posts from selected subreddits or your authenticated Reddit listings. Reddit issues one personal feed token per account at reddit.com/prefs/feeds — it acts like a password, so it is stored only in this device's Keychain and is never included in backups or logs."
+          "Personal Reader downloads posts from the subreddits you're subscribed to or your authenticated Reddit listings. Reddit issues one personal feed token per account at reddit.com/prefs/feeds — it acts like a password, so it is stored only in this device's Keychain and is never included in backups or logs."
         )
         .font(.footnote)
         .foregroundStyle(.secondary)
@@ -53,30 +51,16 @@ struct SetupView: View {
               Label(listing.title, systemImage: listing.systemImage).tag(listing)
             }
           }
-
-          if privateListing == .frontPage {
-            Picker("Sort", selection: $frontPageSort) {
-              ForEach(RedditFrontPageSort.allCases, id: \.self) { sort in
-                Label(sort.title, systemImage: sort.systemImage).tag(sort)
-              }
-            }
-          }
         }
       }
 
-      if feedMode == .subreddits {
+      if feedMode == .subscribed {
         Section {
-          TextField(
-            "Subreddits, comma separated", text: $subredditText,
-            prompt: Text("e.g. shortstories, writingprompts"), axis: .vertical
+          Text(
+            "Your feed will load the latest posts from every subreddit you're subscribed to, in reverse chronological order."
           )
-          .autocorrectionDisabled()
-          .textInputAutocapitalization(.never)
-          .accessibilityLabel("Subreddits, separated by commas")
-        } header: {
-          Text("Subreddits")
-        } footer: {
-          Text("Stories from these subreddits are combined into one feed.")
+          .font(.footnote)
+          .foregroundStyle(.secondary)
         }
       }
 
@@ -115,7 +99,6 @@ struct SetupView: View {
   private var isInputPlausible: Bool {
     !username.trimmingCharacters(in: .whitespaces).isEmpty
       && !token.trimmingCharacters(in: .whitespaces).isEmpty
-      && (feedMode == .privateListing || !AppModel.parseSubreddits(subredditText).isEmpty)
   }
 
   private func testConnection() {
@@ -124,16 +107,13 @@ struct SetupView: View {
     saveError = nil
     let testUsername = username.trimmingCharacters(in: .whitespaces)
     let testToken = token.trimmingCharacters(in: .whitespaces)
-    let testSubreddits = AppModel.parseSubreddits(subredditText)
 
     Task {
       let outcome = await model.testConnection(
         username: testUsername,
         token: testToken,
-        subreddits: testSubreddits,
         feedMode: feedMode,
-        privateListing: privateListing,
-        frontPageSort: frontPageSort
+        privateListing: privateListing
       )
       connectionResult = outcome
       isTesting = false
@@ -145,10 +125,8 @@ struct SetupView: View {
     let outcome = model.saveSetup(
       username: username.trimmingCharacters(in: .whitespaces),
       token: token.trimmingCharacters(in: .whitespaces),
-      subredditText: subredditText,
       feedMode: feedMode,
-      privateListing: privateListing,
-      frontPageSort: frontPageSort
+      privateListing: privateListing
     )
     if case .failed(let message) = outcome {
       saveError = message

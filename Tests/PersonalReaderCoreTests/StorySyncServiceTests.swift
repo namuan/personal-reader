@@ -12,7 +12,7 @@ final class StorySyncServiceTests: XCTestCase {
   private let configuration = try! FeedConfiguration(
     username: "reader",
     token: "token",
-    subreddits: ["shortstories"],
+    source: .subscribed,
     userAgent: "ua"
   )
 
@@ -55,7 +55,7 @@ final class StorySyncServiceTests: XCTestCase {
     }
     XCTAssertEqual(report.inserted, 3)
     XCTAssertEqual(try repository.fetchStories().count, 3)
-    let state = try XCTUnwrap(repository.loadSyncState(feedKey: configuration.feedKey))
+    let state = try XCTUnwrap(repository.loadSyncState(feedKey: FeedSourceRecord.builtInRedditID()))
     XCTAssertEqual(state.lastSuccessfulSyncAt, 1000)
   }
 
@@ -63,7 +63,9 @@ final class StorySyncServiceTests: XCTestCase {
     try repository.applySync(
       stories: [],
       syncStateUpdate: SyncStateUpdate(
-        feedKey: configuration.feedKey, lastSuccessfulSyncAt: 1000, rateLimitAttempt: 0),
+        feedKey: FeedSourceRecord.builtInRedditID(),
+        lastSuccessfulSyncAt: 1000,
+        rateLimitAttempt: 0),
       retentionCutoff: 0
     )
     let service = makeService(client: FeedClientMock(data: Data()))
@@ -81,7 +83,7 @@ final class StorySyncServiceTests: XCTestCase {
 
   func testForceBypassesMinimumIntervalButNotBackoff() async throws {
     _ = try repository.recordRateLimit(
-      feedKey: configuration.feedKey,
+      feedKey: FeedSourceRecord.builtInRedditID(),
       retryNotBefore: 2000,
       attempt: 1
     )
@@ -145,7 +147,7 @@ final class StorySyncServiceTests: XCTestCase {
       XCTAssertEqual(retryAt.timeIntervalSince1970, 61 + 120)
     }
 
-    let state = try XCTUnwrap(repository.loadSyncState(feedKey: configuration.feedKey))
+    let state = try XCTUnwrap(repository.loadSyncState(feedKey: FeedSourceRecord.builtInRedditID()))
     XCTAssertEqual(state.rateLimitAttempt, 2)
   }
 
@@ -239,9 +241,9 @@ final class StorySyncServiceTests: XCTestCase {
     XCTAssertTrue(hasReachedEnd)
   }
 
-  func testCleanupRemovesExpiredStoriesOnSync() async throws {
+  func testCleanupKeepsOlderSubscribedEntries() async throws {
     try repository.save([
-      makeStory(id: "t3_expired", publishedAt: -20 * 24 * 3600),
+      makeStory(id: "t3_old", publishedAt: -20 * 24 * 3600),
       makeStory(id: "t3_recent", publishedAt: 150),
     ])
     let client = FeedClientMock(data: Data(feedXML(count: 1).utf8))
@@ -255,15 +257,16 @@ final class StorySyncServiceTests: XCTestCase {
     guard case .synced(let report) = outcome else {
       return XCTFail("expected synced")
     }
-    XCTAssertEqual(report.deleted, 1)
-    XCTAssertEqual(try repository.fetchStories().map(\.id).sorted(), ["t3_0000000", "t3_recent"])
+    XCTAssertEqual(report.deleted, 0)
+    let ids = try repository.fetchStories().map(\.id).sorted()
+    XCTAssertEqual(ids, ["t3_0000000", "t3_old", "t3_recent"])
   }
 
   func testPrivateListingsRetainOlderEntries() async throws {
     let privateConfiguration = try FeedConfiguration(
       username: "reader",
       token: "token",
-      privateListing: .saved,
+      source: .privateListing(.saved),
       userAgent: "ua"
     )
     let client = FeedClientMock(data: Data(feedXML(count: 1).utf8))
@@ -331,7 +334,8 @@ final class StorySyncServiceTests: XCTestCase {
       contentBody: "<p>Body</p>",
       author: "author",
       subreddit: "shortstories",
-      publishedAt: publishedAt
+      publishedAt: publishedAt,
+      sourceId: FeedSourceRecord.builtInRedditID()
     )
   }
 }

@@ -14,6 +14,7 @@ public struct Story: Codable, Equatable, Hashable, FetchableRecord, Identifiable
   public var publishedAt: Int64
   public var link: String
   public var isRead: Bool
+  public var sourceId: String
 
   public init(
     id: String,
@@ -23,7 +24,8 @@ public struct Story: Codable, Equatable, Hashable, FetchableRecord, Identifiable
     subreddit: String,
     publishedAt: Int64,
     link: String = "",
-    isRead: Bool = false
+    isRead: Bool = false,
+    sourceId: String
   ) {
     self.id = id
     self.title = title
@@ -33,6 +35,7 @@ public struct Story: Codable, Equatable, Hashable, FetchableRecord, Identifiable
     self.publishedAt = publishedAt
     self.link = link
     self.isRead = isRead
+    self.sourceId = sourceId
   }
 
   public var publishedDate: Date {
@@ -53,6 +56,7 @@ public struct Story: Codable, Equatable, Hashable, FetchableRecord, Identifiable
     case publishedAt = "published_at"
     case link
     case isRead = "is_read"
+    case sourceId = "source_id"
   }
 
   public enum Columns: String, ColumnExpression {
@@ -64,5 +68,6 @@ public struct Story: Codable, Equatable, Hashable, FetchableRecord, Identifiable
     case publishedAt = "published_at"
     case link
     case isRead = "is_read"
+    case sourceId = "source_id"
   }
 }

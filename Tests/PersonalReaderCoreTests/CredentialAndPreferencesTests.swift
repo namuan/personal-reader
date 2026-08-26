@@ -39,10 +39,8 @@ final class CredentialAndPreferencesTests: XCTestCase {
 
     var preferences = UserPreferences(
       username: "reader",
-      subreddits: ["a", "b"],
       feedMode: .privateListing,
-      privateListing: .frontPage,
-      frontPageSort: .rising,
+      privateListing: .saved,
       setupComplete: true
     )
     store.preferences = preferences
@@ -61,7 +59,7 @@ final class CredentialAndPreferencesTests: XCTestCase {
     defer { defaults.removePersistentDomain(forName: suiteName) }
 
     let store = PreferencesStore(defaults: defaults)
-    store.preferences = UserPreferences(username: "reader", subreddits: ["a"], setupComplete: true)
+    store.preferences = UserPreferences(username: "reader", setupComplete: true)
 
     store.clear()
 

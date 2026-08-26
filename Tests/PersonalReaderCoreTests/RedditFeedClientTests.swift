@@ -51,7 +51,7 @@ struct FeedClientErrorMapping {
   private let configuration = try! FeedConfiguration(
     username: "reader",
     token: "token",
-    subreddits: ["shortstories"],
+    source: .subscribed,
     userAgent: "ios:PersonalStoryReader:v1.0.0 (by /u/reader)"
   )
 

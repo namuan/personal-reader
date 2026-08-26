@@ -28,10 +28,17 @@ final class BackgroundRefreshCoordinator {
   }
 
   func scheduleNextRefresh(after date: Date? = nil) {
-    let request = BGAppRefreshTaskRequest(identifier: Self.taskIdentifier)
-    let earliest = max(date ?? .distantPast, Date.now.addingTimeInterval(30 * 60))
-    request.earliestBeginDate = earliest
-    try? BGTaskScheduler.shared.submit(request)
+    Task { @MainActor in
+      let environment = model?.environmentIfAvailable
+      let next =
+        environment == nil
+        ? date
+        : await environment?.librarySyncService.nextScheduledRefreshDate() ?? date
+      let request = BGAppRefreshTaskRequest(identifier: Self.taskIdentifier)
+      let earliest = max(next ?? .distantPast, Date.now.addingTimeInterval(30 * 60))
+      request.earliestBeginDate = earliest
+      try? BGTaskScheduler.shared.submit(request)
+    }
   }
 
   private func handle(_ task: BGAppRefreshTask) {

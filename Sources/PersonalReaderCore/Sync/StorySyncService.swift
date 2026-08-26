@@ -49,7 +49,30 @@ public enum SyncError: Error, Equatable, Sendable {
   case cancelled
 }
 
-public actor StorySyncService {
+public protocol RedditSyncing: Sendable {
+  func sync(
+    configuration: FeedConfiguration,
+    force: Bool,
+    now: Date
+  ) async throws -> SyncOutcome
+
+  func loadOlder(
+    configuration: FeedConfiguration,
+    now: Date
+  ) async throws -> OlderSyncOutcome
+
+  func hasReachedEnd(configuration: FeedConfiguration) async throws -> Bool
+}
+
+public protocol RSSSyncing: Sendable {
+  func sync(
+    source: FeedSourceRecord,
+    force: Bool,
+    now: Date
+  ) async throws -> RSSSyncOutcome
+}
+
+public actor StorySyncService: RedditSyncing {
   private let feedClient: any FeedFetching
   private let parser: any StoryParsing
   private let repository: StoryRepository
@@ -73,9 +96,10 @@ public actor StorySyncService {
     force: Bool = false,
     now: Date = Date()
   ) async throws -> SyncOutcome {
+    let feedKey = FeedSourceRecord.builtInRedditID()
     let state =
-      try repository.loadSyncState(feedKey: configuration.feedKey)
-      ?? SyncState(feedKey: configuration.feedKey)
+      try repository.loadSyncState(feedKey: feedKey)
+      ?? SyncState(feedKey: feedKey)
     let nextEligible = nextEligibleDate(state: state, now: now, force: force)
 
     if isSyncing {
@@ -89,14 +113,15 @@ public actor StorySyncService {
 
     do {
       let data = try await feedClient.fetch(configuration: configuration)
-      let stories = Array(try parse(data).prefix(policy.maximumStories))
+      let stories = try parse(data, sourceId: FeedSourceRecord.builtInRedditID())
+      let capped = Array(stories.prefix(policy.maximumStories))
       let report = try repository.applySync(
-        stories: stories,
+        stories: capped,
         syncStateUpdate: SyncStateUpdate(
-          feedKey: configuration.feedKey,
+          feedKey: feedKey,
           lastSuccessfulSyncAt: Int64(now.timeIntervalSince1970),
           rateLimitAttempt: 0,
-          olderCursor: state.olderCursor ?? stories.last?.id
+          olderCursor: state.olderCursor ?? capped.last?.id
         ),
         retentionCutoff: retentionCutoff(for: configuration, now: now)
       )
@@ -116,9 +141,10 @@ public actor StorySyncService {
     configuration: FeedConfiguration,
     now: Date = Date()
   ) async throws -> OlderSyncOutcome {
+    let feedKey = FeedSourceRecord.builtInRedditID()
     let state =
-      try repository.loadSyncState(feedKey: configuration.feedKey)
-      ?? SyncState(feedKey: configuration.feedKey)
+      try repository.loadSyncState(feedKey: feedKey)
+      ?? SyncState(feedKey: feedKey)
     if state.hasReachedEnd {
       return .exhausted
     }
@@ -132,7 +158,7 @@ public actor StorySyncService {
     if let olderCursor = state.olderCursor {
       cursor = olderCursor
     } else {
-      cursor = try repository.oldestStoryID()
+      cursor = try repository.oldestStoryID(sourceId: FeedSourceRecord.builtInRedditID())
     }
     guard let cursor else {
       return .exhausted
@@ -143,15 +169,16 @@ public actor StorySyncService {
 
     do {
       let data = try await feedClient.fetch(configuration: configuration, after: cursor)
-      let stories = Array(try parse(data).prefix(policy.maximumStories))
-      let hasReachedEnd = stories.isEmpty || stories.last?.id == cursor
+      let stories = try parse(data, sourceId: FeedSourceRecord.builtInRedditID())
+      let capped = Array(stories.prefix(policy.maximumStories))
+      let hasReachedEnd = capped.isEmpty || capped.last?.id == cursor
       let report = try repository.applySync(
-        stories: stories,
+        stories: capped,
         syncStateUpdate: SyncStateUpdate(
-          feedKey: configuration.feedKey,
+          feedKey: feedKey,
           lastSuccessfulSyncAt: Int64(now.timeIntervalSince1970),
           rateLimitAttempt: 0,
-          olderCursor: stories.last?.id ?? cursor,
+          olderCursor: capped.last?.id ?? cursor,
           hasReachedEnd: hasReachedEnd
         ),
         retentionCutoff: retentionCutoff(for: configuration, now: now)
@@ -169,14 +196,13 @@ public actor StorySyncService {
   }
 
   public func hasReachedEnd(configuration: FeedConfiguration) throws -> Bool {
-    try repository.loadSyncState(feedKey: configuration.feedKey)?.hasReachedEnd ?? false
+    let feedKey = FeedSourceRecord.builtInRedditID()
+    return try repository.loadSyncState(feedKey: feedKey)?.hasReachedEnd ?? false
   }
 
   private func retentionCutoff(for configuration: FeedConfiguration, now: Date) -> Int64 {
     switch configuration.source {
-    case .subreddits:
-      return Int64(now.addingTimeInterval(-policy.retentionInterval).timeIntervalSince1970)
-    case .privateListing:
+    case .subscribed, .privateListing:
       return .min
     }
   }
@@ -196,7 +222,8 @@ public actor StorySyncService {
   }
 
   public func retryDate(configuration: FeedConfiguration) throws -> Date? {
-    try repository.loadSyncState(feedKey: configuration.feedKey)?.retryNotBeforeDate
+    let feedKey = FeedSourceRecord.builtInRedditID()
+    return try repository.loadSyncState(feedKey: feedKey)?.retryNotBeforeDate
   }
 
   private func nextEligibleDate(
@@ -245,8 +272,21 @@ public actor StorySyncService {
     }
   }
 
-  private func parse(_ data: Data) throws -> [Story] {
-    try parser.parse(data)
+  private func parse(_ data: Data, sourceId: String) throws -> [Story] {
+    let raw = try parser.parse(data)
+    return raw.map { story in
+      Story(
+        id: story.id,
+        title: story.title,
+        contentBody: story.contentBody,
+        author: story.author,
+        subreddit: story.subreddit,
+        publishedAt: story.publishedAt,
+        link: story.link,
+        isRead: story.isRead,
+        sourceId: sourceId
+      )
+    }
   }
 
   private func errorDescription(of error: RSSParserError) -> String? {

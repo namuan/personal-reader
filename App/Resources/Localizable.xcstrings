@@ -7,7 +7,13 @@
     "All" : {
 
     },
+    "Add RSS feed" : {
+
+    },
     "All caught up" : {
+
+    },
+    "All feeds" : {
 
     },
     "All stories" : {
@@ -50,6 +56,12 @@
     "Data" : {
 
     },
+    "Delete feed" : {
+
+    },
+    "Display name (optional)" : {
+
+    },
     "Done" : {
 
     },
@@ -62,10 +74,22 @@
     "e.g. shortstories, writingprompts" : {
 
     },
+    "Edit feed" : {
+
+    },
+    "Enabled" : {
+
+    },
     "Every downloaded story has been read." : {
 
     },
     "Feed source" : {
+
+    },
+    "Feed URL" : {
+
+    },
+    "Feed URL must start with https://" : {
 
     },
     "Filter stories" : {
@@ -108,6 +132,42 @@
 
     },
     "Privacy: the app sends requests only to reddit.com for your configured feed and opens links you choose. It contains no analytics or tracking." : {
+
+    },
+    "Privacy: Personal Reader sends requests only to reddit.com for your configured Reddit feed and to any RSS feed hosts you add. It contains no analytics or tracking." : {
+
+    },
+    "Refresh" : {
+
+    },
+    "Refresh interval" : {
+
+    },
+    "Reddit" : {
+
+    },
+    "RSS feeds" : {
+
+    },
+    "Save" : {
+
+    },
+    "Tap a feed to scope the list. Use Settings to add RSS feeds." : {
+
+    },
+    "Test feed" : {
+
+    },
+    "Updated %lld of %lld feeds." : {
+
+    },
+    "Use the public Atom or RSS URL of the site. HTTPS is required." : {
+
+    },
+    "You haven't added any RSS or Atom feeds yet. Add one to start mixing it with your Reddit private stories." : {
+
+    },
+    "Personal Reader will fetch each enabled feed on its own schedule and merge the entries with your Reddit private stories." : {
 
     },
     "Private feed token" : {

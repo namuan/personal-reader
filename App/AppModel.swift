@@ -18,6 +18,7 @@ final class AppModel {
     case offline
     case failed(String)
     case throttled(Date)
+    case partial(succeeded: Int, attempted: Int)
   }
 
   private(set) var phase: Phase = .loading
@@ -27,6 +28,16 @@ final class AppModel {
   private(set) var syncStatus: SyncStatus = .idle
   private(set) var isLoadingOlderStories = false
   private(set) var hasMoreStories = true
+  private(set) var feedSources: [FeedSourceRecord] = []
+  private(set) var sourcesNeedingAttention: [String: String] = [:]
+  var scope: LibraryScope = .all {
+    didSet {
+      if scope != oldValue {
+        persistScope()
+        restartObservation()
+      }
+    }
+  }
 
   var showUnreadOnly = false {
     didSet { restartObservation() }
@@ -52,27 +63,28 @@ final class AppModel {
     environment.savedPreferences.privateListing
   }
 
-  var currentFrontPageSort: RedditFrontPageSort {
-    environment.savedPreferences.frontPageSort
-  }
-
   var currentFeedTitle: String {
-    let preferences = environment.savedPreferences
-    guard preferences.feedMode == .privateListing else { return "Stories" }
-    return preferences.privateListing == .frontPage
-      ? preferences.frontPageSort.title
-      : preferences.privateListing.title
+    switch scope {
+    case .all:
+      return "All feeds"
+    case .reddit:
+      return redditTitle()
+    case .source(let id):
+      return feedSources.first(where: { $0.id == id })?.title ?? "Feed"
+    }
   }
 
-  var hasConfiguredSubreddits: Bool {
-    !environment.savedPreferences.subreddits.isEmpty
+  var hasConfiguredSubscribedFeed: Bool {
+    true
   }
 
   var canChangeFeed: Bool {
-    syncStatus != .syncing
+    if case .syncing = syncStatus { return false }
+    return true
   }
 
   private let environment: AppEnvironment
+  var environmentIfAvailable: AppEnvironment { environment }
   private var observationCancellable: AnyDatabaseCancellable?
 
   init(environment: AppEnvironment) {
@@ -85,6 +97,8 @@ final class AppModel {
       phase = .setup
       return
     }
+    scope = preferences.scope
+    loadFeedSources()
     loadSyncState()
     startObservation()
     phase = .ready
@@ -100,31 +114,13 @@ final class AppModel {
       syncStatus = .syncing
     }
 
-    do {
-      let outcome = try await environment.syncService.sync(
-        configuration: configuration,
-        force: force
-      )
-      loadSyncState()
-      switch outcome {
-      case .synced:
-        if !isBackground { syncStatus = .idle }
-      case .skipped(let nextAllowedAt):
-        if !isBackground {
-          if nextAllowedAt > Date.now.addingTimeInterval(60) {
-            syncStatus = .throttled(nextAllowedAt)
-          } else {
-            syncStatus = .idle
-          }
-        }
-      }
-    } catch let error as SyncError {
-      apply(error: error)
-    } catch {
-      if !isBackground {
-        syncStatus = .failed("Sync failed. Try again later.")
-      }
-    }
+    let report = await environment.librarySyncService.refreshDueSources(
+      reddit: true,
+      force: force
+    )
+    loadFeedSources()
+    loadSyncState()
+    applyLibraryReport(report, isBackground: isBackground)
   }
 
   func markRead(_ story: Story) {
@@ -135,16 +131,15 @@ final class AppModel {
   func loadOlderStories() async {
     guard !isLoadingOlderStories, hasMoreStories,
       let configuration = environment.configuration()
-    else {
-      return
-    }
-
+    else { return }
     isLoadingOlderStories = true
     syncStatus = .syncing
     defer { isLoadingOlderStories = false }
 
     do {
-      let outcome = try await environment.syncService.loadOlder(configuration: configuration)
+      let outcome = try await environment.librarySyncService.loadOlderReddit(
+        configuration: configuration
+      )
       loadSyncState()
       switch outcome {
       case .loaded:
@@ -159,7 +154,7 @@ final class AppModel {
           : .idle
       }
     } catch let error as SyncError {
-      apply(error: error)
+      applyReddit(error: error)
     } catch {
       syncStatus = .failed("Could not load older stories. Try again later.")
     }
@@ -175,20 +170,21 @@ final class AppModel {
     case failed(String)
   }
 
+  enum FeedConnectionOutcome: Equatable {
+    case connected(title: String, entryCount: Int)
+    case failed(String)
+  }
+
   func testConnection(
     username: String,
     token: String,
-    subreddits: [String],
     feedMode: FeedMode,
-    privateListing: RedditPrivateListing,
-    frontPageSort: RedditFrontPageSort
+    privateListing: RedditPrivateListing
   ) async -> ConnectionOutcome {
     let effectiveToken = token.isEmpty ? (environment.tokenStore.load() ?? "") : token
     let source = Self.feedSource(
       mode: feedMode,
-      subreddits: subreddits,
-      privateListing: privateListing,
-      frontPageSort: frontPageSort
+      privateListing: privateListing
     )
     do {
       let configuration = try FeedConfiguration(
@@ -215,20 +211,37 @@ final class AppModel {
     }
   }
 
+  func testFeed(url: String) async -> FeedConnectionOutcome {
+    let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+      return .failed("Enter a feed URL.")
+    }
+    guard let urlValue = URL(string: trimmed), urlValue.scheme?.lowercased() == "https" else {
+      return .failed("Feed URL must start with https://")
+    }
+    do {
+      let feed = try await environment.rssSyncService.testSync(url: urlValue)
+      return .connected(title: feed.title, entryCount: feed.entries.count)
+    } catch let error as SyndicationClientError {
+      return .failed(Self.feedTestMessage(for: error))
+    } catch let error as RSSParserError {
+      return .failed("The feed response was not valid XML or RSS.")
+    } catch is CancellationError {
+      return .failed("The test was cancelled.")
+    } catch {
+      return .failed("Could not reach the feed. Check the URL and your network.")
+    }
+  }
+
   func saveSetup(
     username: String,
     token: String,
-    subredditText: String,
     feedMode: FeedMode,
-    privateListing: RedditPrivateListing,
-    frontPageSort: RedditFrontPageSort
+    privateListing: RedditPrivateListing
   ) -> SetupOutcome {
-    let subreddits = Self.parseSubreddits(subredditText)
     let source = Self.feedSource(
       mode: feedMode,
-      subreddits: subreddits,
-      privateListing: privateListing,
-      frontPageSort: frontPageSort
+      privateListing: privateListing
     )
     do {
       let configuration = try FeedConfiguration(
@@ -244,13 +257,12 @@ final class AppModel {
       }
       var preferences = environment.savedPreferences
       preferences.username = configuration.username
-      preferences.subreddits = subreddits
       preferences.feedMode = feedMode
       preferences.privateListing = privateListing
-      preferences.frontPageSort = frontPageSort
       preferences.setupComplete = true
       environment.preferences.preferences = preferences
 
+      loadFeedSources()
       loadSyncState()
       startObservation()
       phase = .ready
@@ -264,18 +276,13 @@ final class AppModel {
   func updateSettings(
     username: String,
     newToken: String?,
-    subredditText: String,
     feedMode: FeedMode,
-    privateListing: RedditPrivateListing,
-    frontPageSort: RedditFrontPageSort
+    privateListing: RedditPrivateListing
   ) -> SetupOutcome {
     let previousFeedKey = environment.configuration()?.feedKey
-    let subreddits = Self.parseSubreddits(subredditText)
     let source = Self.feedSource(
       mode: feedMode,
-      subreddits: subreddits,
-      privateListing: privateListing,
-      frontPageSort: frontPageSort
+      privateListing: privateListing
     )
     let tokenToUse: String
     if let newToken, !newToken.isEmpty {
@@ -302,13 +309,11 @@ final class AppModel {
       }
       var preferences = environment.savedPreferences
       preferences.username = configuration.username
-      preferences.subreddits = subreddits
       preferences.feedMode = feedMode
       preferences.privateListing = privateListing
-      preferences.frontPageSort = frontPageSort
       environment.preferences.preferences = preferences
       if previousFeedKey != configuration.feedKey {
-        resetDownloadedFeed()
+        resetRedditFeed()
       }
       loadSyncState()
       Task { await refresh(force: true) }
@@ -319,7 +324,7 @@ final class AppModel {
   }
 
   func selectPrivateListing(_ listing: RedditPrivateListing) {
-    guard listing != .frontPage, canChangeFeed else { return }
+    guard canChangeFeed else { return }
     var preferences = environment.savedPreferences
     guard preferences.feedMode != .privateListing || preferences.privateListing != listing else {
       return
@@ -327,64 +332,152 @@ final class AppModel {
     preferences.feedMode = .privateListing
     preferences.privateListing = listing
     environment.preferences.preferences = preferences
-    resetDownloadedFeed()
+    resetRedditFeed()
     Task { await refresh(force: true) }
   }
 
-  func selectFrontPageSort(_ sort: RedditFrontPageSort) {
+  func selectSubscribedFeed() {
     guard canChangeFeed else { return }
     var preferences = environment.savedPreferences
-    guard
-      preferences.feedMode != .privateListing
-        || preferences.privateListing != .frontPage
-        || preferences.frontPageSort != sort
-    else {
-      return
-    }
-    preferences.feedMode = .privateListing
-    preferences.privateListing = .frontPage
-    preferences.frontPageSort = sort
+    guard preferences.feedMode != .subscribed else { return }
+    preferences.feedMode = .subscribed
     environment.preferences.preferences = preferences
-    resetDownloadedFeed()
+    resetRedditFeed()
     Task { await refresh(force: true) }
   }
 
-  func selectAdjacentFrontPageSort(direction: Int) {
-    let preferences = environment.savedPreferences
-    guard preferences.feedMode == .privateListing,
-      preferences.privateListing == .frontPage,
-      direction != 0
-    else {
-      return
-    }
-    let sorts = RedditFrontPageSort.allCases
-    guard let index = sorts.firstIndex(of: preferences.frontPageSort) else { return }
-    let nextIndex = (index + direction % sorts.count + sorts.count) % sorts.count
-    selectFrontPageSort(sorts[nextIndex])
+  func selectScope(_ newScope: LibraryScope) {
+    scope = newScope
   }
 
-  func selectSubreddits() {
-    guard canChangeFeed else { return }
-    var preferences = environment.savedPreferences
-    guard !preferences.subreddits.isEmpty else {
-      syncStatus = .failed("Add at least one subreddit in Settings first.")
-      return
+  func addFeed(
+    url: String,
+    title: String?,
+    refreshInterval: RefreshInterval
+  ) -> SetupOutcome {
+    let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return .failed("Enter a feed URL.") }
+    guard let urlValue = URL(string: trimmed), urlValue.scheme?.lowercased() == "https" else {
+      return .failed("Feed URL must start with https://")
     }
-    guard preferences.feedMode != .subreddits else { return }
-    preferences.feedMode = .subreddits
-    environment.preferences.preferences = preferences
-    resetDownloadedFeed()
-    Task { await refresh(force: true) }
+    do {
+      let nextOrder = (try? environment.sourceStore.nextSortOrder()) ?? 0
+      let displayTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+      let resolvedTitle =
+        (displayTitle?.isEmpty == false ? displayTitle! : urlValue.host ?? trimmed)
+      let source = FeedSourceRecord(
+        kind: .rss,
+        title: resolvedTitle,
+        url: trimmed,
+        isEnabled: true,
+        refreshInterval: refreshInterval,
+        sortOrder: nextOrder
+      )
+      try environment.sourceStore.save(source)
+      loadFeedSources()
+      Task { await refresh(force: false, isBackground: false) }
+      return .saved
+    } catch {
+      return .failed("Could not save the feed.")
+    }
+  }
+
+  func updateFeed(
+    id: String,
+    title: String?,
+    refreshInterval: RefreshInterval,
+    isEnabled: Bool
+  ) -> SetupOutcome {
+    guard let existing = try? environment.sourceStore.fetch(id: id) else {
+      return .failed("Feed not found.")
+    }
+    var updated = existing
+    updated.refreshInterval = refreshInterval
+    updated.isEnabled = isEnabled
+    if let title {
+      let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !trimmed.isEmpty {
+        updated.title = trimmed
+      }
+    }
+    updated.updatedAt = Int64(Date().timeIntervalSince1970)
+    do {
+      try environment.sourceStore.save(updated)
+      loadFeedSources()
+      restartObservation()
+      return .saved
+    } catch {
+      return .failed("Could not update the feed.")
+    }
+  }
+
+  func deleteFeed(id: String) {
+    do {
+      try environment.repository.deleteSource(sourceId: id)
+      loadFeedSources()
+      restartObservation()
+      if case .source(let scopedId) = scope, scopedId == id {
+        scope = .all
+      }
+    } catch {
+      syncStatus = .failed("Could not delete the feed.")
+    }
+  }
+
+  func refreshFeed(id: String) async {
+    let result = await environment.librarySyncService.refreshSource(
+      id: id,
+      force: true
+    )
+    loadFeedSources()
+    loadSyncState()
+    if case .failure(let error) = result.outcome {
+      switch error {
+      case .notDue(let next):
+        syncStatus = .throttled(next)
+      case .rateLimited(let next):
+        syncStatus = .throttled(next)
+      case .invalidCredentials:
+        syncStatus = .failed("Feed credentials rejected.")
+      case .offline:
+        syncStatus = .offline
+      case .timedOut:
+        syncStatus = .failed("Feed request timed out.")
+      case .serverFailure:
+        syncStatus = .failed("Feed server is having trouble.")
+      case .malformedFeed(let message):
+        syncStatus = .failed(message ?? "Feed could not be parsed.")
+      case .networkFailure:
+        syncStatus = .offline
+      case .cancelled:
+        break
+      case .insecureScheme, .alreadySyncing:
+        break
+      }
+    } else if case .syncing = syncStatus {
+      syncStatus = .idle
+    }
   }
 
   func clearLocalData() {
-    resetDownloadedFeed()
+    do {
+      try environment.repository.deleteAllData(preservingFeedSources: true)
+    } catch {
+      syncStatus = .failed("Could not clear downloaded stories.")
+      return
+    }
+    loadSyncState()
+    restartObservation()
   }
 
   func clearAllData() {
     environment.tokenStore.delete()
     environment.preferences.clear()
-    try? environment.repository.deleteAllData()
+    do {
+      try environment.repository.deleteAllData(preservingFeedSources: false)
+    } catch {
+      syncStatus = .failed("Could not clear library data.")
+    }
     observationCancellable?.cancel()
     observationCancellable = nil
     stories = []
@@ -394,10 +487,56 @@ final class AppModel {
     hasMoreStories = true
     syncStatus = .idle
     showUnreadOnly = false
+    scope = .all
+    loadFeedSources()
     phase = .setup
   }
 
-  private func apply(error: SyncError) {
+  private func applyLibraryReport(_ report: LibraryRefreshReport, isBackground: Bool) {
+    if isBackground {
+      if report.succeededCount < report.totalAttempted, report.totalAttempted > 0 {
+        sourcesNeedingAttention = report.sources.reduce(into: [:]) { acc, result in
+          if case .failure(let error) = result.outcome {
+            acc[result.sourceId] = Self.message(forRSSError: error)
+          }
+        }
+      } else {
+        sourcesNeedingAttention = [:]
+      }
+      if report.succeededCount > 0 {
+        syncStatus = .idle
+      } else if report.totalAttempted > 0 {
+        syncStatus = .failed("Refresh failed. Open the app to see details.")
+      }
+      return
+    }
+    var aggregated: [String: String] = [:]
+    if case .failure(let error) = report.reddit {
+      aggregated[FeedSourceRecord.builtInRedditID()] = Self.message(forSyncError: error)
+    }
+    for result in report.sources {
+      if case .failure(let error) = result.outcome {
+        aggregated[result.sourceId] = Self.message(forRSSError: error)
+      }
+    }
+    sourcesNeedingAttention = aggregated
+
+    if report.succeededCount == 0, report.totalAttempted > 0 {
+      if let firstFailure = aggregated.values.first {
+        syncStatus = .failed(firstFailure)
+      } else {
+        syncStatus = .failed("Refresh failed.")
+      }
+    } else if report.totalAttempted == 0 {
+      syncStatus = .idle
+    } else if report.succeededCount < report.totalAttempted {
+      syncStatus = .partial(succeeded: report.succeededCount, attempted: report.totalAttempted)
+    } else {
+      syncStatus = .idle
+    }
+  }
+
+  private func applyReddit(error: SyncError) {
     switch error {
     case .rateLimited(let retryAt):
       syncStatus = .throttled(retryAt)
@@ -438,6 +577,80 @@ final class AppModel {
     }
   }
 
+  nonisolated static func message(forSyncError error: SyncError) -> String {
+    switch error {
+    case .rateLimited(let retryAt):
+      return
+        "Reddit is rate limiting. Next try \(retryAt.formatted(.relative(presentation: .named)))."
+    case .invalidCredentials:
+      return "Reddit rejected the feed credentials."
+    case .offline:
+      return "Offline."
+    case .timedOut:
+      return "The feed request timed out."
+    case .serverFailure:
+      return "Reddit is having trouble right now."
+    case .malformedFeed:
+      return "The feed response could not be parsed."
+    case .networkFailure:
+      return "Network error."
+    case .cancelled:
+      return "Cancelled."
+    }
+  }
+
+  nonisolated static func message(forRSSError error: RSSSyncError) -> String {
+    switch error {
+    case .rateLimited(let retryAt):
+      return "Rate limited. Next try \(retryAt.formatted(.relative(presentation: .named)))."
+    case .invalidCredentials:
+      return "The feed rejected the request."
+    case .offline:
+      return "Offline."
+    case .timedOut:
+      return "The feed request timed out."
+    case .serverFailure:
+      return "The feed server is having trouble."
+    case .malformedFeed(let message):
+      return message ?? "Feed could not be parsed."
+    case .networkFailure:
+      return "Network error."
+    case .cancelled:
+      return "Cancelled."
+    case .insecureScheme:
+      return "Feed URL must use HTTPS."
+    case .alreadySyncing:
+      return "Already syncing."
+    case .notDue:
+      return "Refresh not yet due."
+    }
+  }
+
+  nonisolated static func feedTestMessage(for error: SyndicationClientError) -> String {
+    switch error {
+    case .insecureScheme, .insecureRedirect:
+      return "Feed URL must start with https://"
+    case .invalidCredentials:
+      return "The feed rejected the request."
+    case .rateLimited:
+      return "The feed is rate limiting requests. Try again later."
+    case .serverError:
+      return "The feed server is having trouble right now."
+    case .invalidResponse:
+      return "The response from the feed was not recognized."
+    case .offline:
+      return "Offline."
+    case .timedOut:
+      return "The feed request timed out."
+    case .cancelled:
+      return "Cancelled."
+    case .unexpectedStatus(let status):
+      return "Unexpected response (HTTP \(status))."
+    case .transportFailure:
+      return "Network error."
+    }
+  }
+
   nonisolated static func validationMessage(for error: Error) -> String {
     guard let feedError = error as? FeedConfigurationError else {
       return "Settings could not be saved."
@@ -447,10 +660,6 @@ final class AppModel {
       return "Enter your Reddit username."
     case .missingToken:
       return "Paste your private RSS token."
-    case .missingSubreddits:
-      return "Add at least one subreddit."
-    case .invalidSubreddit:
-      return "Subreddit names may only contain letters, numbers, and underscores."
     case .invalidURL:
       return "These settings do not form a valid feed URL."
     case .missingUserAgent:
@@ -458,46 +667,79 @@ final class AppModel {
     }
   }
 
-  nonisolated static func parseSubreddits(_ text: String) -> [String] {
-    text
-      .split(whereSeparator: { $0 == "," || $0.isNewline || $0 == " " })
-      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
-  }
-
   nonisolated private static func feedSource(
     mode: FeedMode,
-    subreddits: [String],
-    privateListing: RedditPrivateListing,
-    frontPageSort: RedditFrontPageSort
+    privateListing: RedditPrivateListing
   ) -> FeedSource {
-    mode == .subreddits
-      ? .subreddits(subreddits)
-      : .privateListing(privateListing, frontPageSort)
+    mode == .subscribed
+      ? .subscribed
+      : .privateListing(privateListing)
   }
 
-  private func resetDownloadedFeed() {
-    try? environment.repository.deleteAllData()
-    stories = []
-    unreadCount = 0
+  private func resetRedditFeed() {
+    do {
+      try environment.repository.deleteSourceStories(sourceId: FeedSourceRecord.builtInRedditID())
+      try environment.repository.deletePublished(
+        before: Int64.max, sourceId: FeedSourceRecord.builtInRedditID()
+      )
+    } catch {
+      syncStatus = .failed("Could not reset the Reddit feed.")
+      return
+    }
+    stories = stories.filter { $0.sourceId != FeedSourceRecord.builtInRedditID() }
+    unreadCount = stories.reduce(0) { $0 + ($1.isRead ? 0 : 1) }
     lastSyncDate = nil
     isLoadingOlderStories = false
     hasMoreStories = true
     showUnreadOnly = false
-    syncStatus = .idle
+    restartObservation()
+  }
+
+  private func persistScope() {
+    var preferences = environment.savedPreferences
+    preferences.scope = scope
+    environment.preferences.preferences = preferences
+  }
+
+  private func redditTitle() -> String {
+    let preferences = environment.savedPreferences
+    guard preferences.feedMode == .privateListing else { return "Stories" }
+    return preferences.privateListing.title
+  }
+
+  private func loadFeedSources() {
+    feedSources = (try? environment.sourceStore.fetchAll()) ?? []
   }
 
   private func loadSyncState() {
     guard let configuration = environment.configuration() else { return }
-    let state = try? environment.repository.loadSyncState(feedKey: configuration.feedKey)
+    let feedKey = StoryRepository.feedKey(for: FeedSourceRecord.builtInRedditID())
+    let state = try? environment.repository.loadSyncState(feedKey: feedKey)
     lastSyncDate = state?.lastSuccessfulSyncDate
     hasMoreStories = state?.hasReachedEnd != true
+  }
+
+  private func enabledSourceIds() -> Set<String> {
+    Set(feedSources.filter(\.isEnabled).map(\.id))
+  }
+
+  private func filteredStoriesForScope(_ all: [Story]) -> [Story] {
+    switch scope {
+    case .all:
+      return all
+    case .reddit:
+      return all.filter { $0.sourceId == FeedSourceRecord.builtInRedditID() }
+    case .source(let id):
+      return all.filter { $0.sourceId == id }
+    }
   }
 
   private func startObservation() {
     observationCancellable?.cancel()
     let repository = environment.repository
-    let cancellable = repository.observeStories(
+    let enabledIds = enabledSourceIds()
+    observationCancellable = repository.observeEnabledStories(
+      enabledSourceIds: enabledIds,
       onError: { _ in },
       onChange: { [weak self] updatedStories in
         Task { @MainActor in
@@ -505,18 +747,22 @@ final class AppModel {
         }
       }
     )
-    observationCancellable = cancellable
     do {
-      apply(stories: try repository.fetchStories())
+      let initial = try repository.fetchStoriesFromEnabledSources(
+        enabledSourceIds: enabledIds
+      )
+      apply(stories: initial)
     } catch {}
   }
 
   private func restartObservation() {
-    unreadCount = stories.reduce(0) { $0 + ($1.isRead ? 0 : 1) }
+    guard phase == .ready else { return }
+    startObservation()
   }
 
   private func apply(stories updatedStories: [Story]) {
-    stories = updatedStories
-    unreadCount = updatedStories.reduce(0) { $0 + ($1.isRead ? 0 : 1) }
+    let scoped = filteredStoriesForScope(updatedStories)
+    stories = scoped
+    unreadCount = scoped.reduce(0) { $0 + ($1.isRead ? 0 : 1) }
   }
 }

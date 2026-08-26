@@ -216,7 +216,8 @@ final class RedditRSSParserFixtureTests: XCTestCase {
       contentBody: "<p>Body</p>",
       author: "author",
       subreddit: "shortstories",
-      publishedAt: publishedAt
+      publishedAt: publishedAt,
+      sourceId: FeedSourceRecord.builtInRedditID()
     )
   }
 }

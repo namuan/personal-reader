@@ -6,10 +6,8 @@ struct SettingsView: View {
   @Environment(\.dismiss) private var dismiss
 
   @State private var username = ""
-  @State private var subredditText = ""
-  @State private var feedMode: FeedMode = .subreddits
-  @State private var privateListing: RedditPrivateListing = .frontPage
-  @State private var frontPageSort: RedditFrontPageSort = .best
+  @State private var feedMode: FeedMode = .subscribed
+  @State private var privateListing: RedditPrivateListing = .saved
   @State private var newToken = ""
   @State private var hasStoredToken = false
   @State private var connectionResult: AppModel.ConnectionOutcome?
@@ -18,6 +16,7 @@ struct SettingsView: View {
   @State private var isTesting = false
   @State private var isConfirmingLocalDataClear = false
   @State private var isConfirmingReset = false
+  @State private var isManagingFeeds = false
 
   var body: some View {
     NavigationStack {
@@ -67,8 +66,11 @@ struct SettingsView: View {
         Button("Cancel", role: .cancel) {}
       } message: {
         Text(
-          "This removes the RSS token, your preferences, and every downloaded story. You will return to setup."
+          "This removes the RSS token, your preferences, every downloaded story, and any RSS feeds you've added. You will return to setup."
         )
+      }
+      .sheet(isPresented: $isManagingFeeds) {
+        FeedManagementView()
       }
     }
   }
@@ -117,22 +119,6 @@ struct SettingsView: View {
             Label(listing.title, systemImage: listing.systemImage).tag(listing)
           }
         }
-
-        if privateListing == .frontPage {
-          Picker("Sort", selection: $frontPageSort) {
-            ForEach(RedditFrontPageSort.allCases, id: \.self) { sort in
-              Label(sort.title, systemImage: sort.systemImage).tag(sort)
-            }
-          }
-        }
-      } else {
-        TextField(
-          "Subreddits, comma separated",
-          text: $subredditText,
-          axis: .vertical
-        )
-        .autocorrectionDisabled()
-        .textInputAutocapitalization(.never)
       }
     }
   }
@@ -169,6 +155,18 @@ struct SettingsView: View {
 
   private var dataSection: some View {
     Section("Data") {
+      Button {
+        isManagingFeeds = true
+      } label: {
+        HStack {
+          Label("RSS feeds", systemImage: "dot.radiowaves.left.and.right")
+          Spacer()
+          Text("\(model.feedSources.count)")
+            .foregroundStyle(.secondary)
+        }
+      }
+      .accessibilityHint("Add, edit, or remove RSS feeds")
+
       LabeledContent("Downloaded stories") {
         Text("\(model.stories.count)")
       }
@@ -179,11 +177,7 @@ struct SettingsView: View {
         Text(model.lastSyncDate.map { $0.formatted(.relative(presentation: .named)) } ?? "Never")
       }
       LabeledContent("Retention") {
-        Text(
-          feedMode == .subreddits
-            ? "Stories older than 14 days are removed"
-            : "Up to 50 listing entries are kept"
-        )
+        Text("All downloaded entries are kept")
       }
       .accessibilityHint("Automatic cleanup keeps the library current")
       LabeledContent("Version") {
@@ -207,23 +201,20 @@ struct SettingsView: View {
       }
     } footer: {
       Text(
-        "Privacy: the app sends requests only to reddit.com for your configured feed and opens links you choose. It contains no analytics or tracking."
+        "Privacy: Personal Reader sends requests only to reddit.com for your configured Reddit feed and to any RSS feed hosts you add. It contains no analytics or tracking."
       )
     }
   }
 
   private var isFeedInputPlausible: Bool {
     !username.trimmingCharacters(in: .whitespaces).isEmpty
-      && (feedMode == .privateListing || !AppModel.parseSubreddits(subredditText).isEmpty)
   }
 
   private func loadCurrentValues() {
     let preferences = model.savedPreferences
     username = preferences.username
-    subredditText = preferences.subreddits.joined(separator: ", ")
     feedMode = preferences.feedMode
     privateListing = preferences.privateListing
-    frontPageSort = preferences.frontPageSort
     hasStoredToken = model.hasStoredToken
   }
 
@@ -233,16 +224,13 @@ struct SettingsView: View {
     settingsMessage = nil
     settingsError = nil
     let testUsername = username.trimmingCharacters(in: .whitespaces)
-    let testSubreddits = AppModel.parseSubreddits(subredditText)
 
     Task {
       let outcome = await model.testConnection(
         username: testUsername,
         token: newToken,
-        subreddits: testSubreddits,
         feedMode: feedMode,
-        privateListing: privateListing,
-        frontPageSort: frontPageSort
+        privateListing: privateListing
       )
       connectionResult = outcome
       isTesting = false
@@ -256,10 +244,8 @@ struct SettingsView: View {
     let outcome = model.updateSettings(
       username: username.trimmingCharacters(in: .whitespaces),
       newToken: trimmedToken.isEmpty ? nil : trimmedToken,
-      subredditText: subredditText,
       feedMode: feedMode,
-      privateListing: privateListing,
-      frontPageSort: frontPageSort
+      privateListing: privateListing
     )
     if case .failed(let message) = outcome {
       settingsError = message

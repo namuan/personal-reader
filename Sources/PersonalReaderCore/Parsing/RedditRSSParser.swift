@@ -189,7 +189,8 @@ private final class RSSParserDelegate: NSObject, XMLParserDelegate {
       author: author,
       subreddit: subreddit,
       publishedAt: publishedAt,
-      link: link ?? ""
+      link: link ?? "",
+      sourceId: FeedSourceRecord.builtInRedditID()
     )
   }
 

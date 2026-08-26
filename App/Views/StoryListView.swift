@@ -2,13 +2,10 @@ import PersonalReaderCore
 import SwiftUI
 
 struct StoryListView: View {
-  private static let secondaryPrivateListings = RedditPrivateListing.allCases.filter {
-    $0 != .frontPage
-  }
-
   @Environment(AppModel.self) private var model: AppModel
 
   @State private var isSettingsPresented = false
+  @State private var isSourceListExpanded = false
 
   var body: some View {
     NavigationStack {
@@ -20,6 +17,9 @@ struct StoryListView: View {
         } else {
           storyCards
         }
+      }
+      .safeAreaInset(edge: .top, spacing: 0) {
+        ScopeBarView(isSourceListExpanded: $isSourceListExpanded)
       }
       .navigationTitle(model.currentFeedTitle)
       .toolbar { toolbarContent }
@@ -40,10 +40,12 @@ struct StoryListView: View {
     ScrollView {
       LazyVStack(spacing: 12) {
         ForEach(model.filteredStories) { story in
-          StoryCardView(story: story)
+          StoryCardView(story: story, sourceTitle: sourceTitle(for: story.sourceId))
         }
 
-        olderStoriesControl
+        if showsLoadOlder {
+          olderStoriesControl
+        }
       }
       .padding(.horizontal)
       .padding(.vertical, 12)
@@ -51,6 +53,21 @@ struct StoryListView: View {
     .navigationDestination(for: Story.self) { story in
       ReaderView(story: story)
     }
+  }
+
+  private var showsLoadOlder: Bool {
+    if case .reddit = model.scope {
+      return true
+    }
+    if case .source = model.scope {
+      return false
+    }
+    return false
+  }
+
+  private func sourceTitle(for sourceId: String) -> String? {
+    if sourceId == FeedSourceRecord.builtInRedditID() { return nil }
+    return model.feedSources.first(where: { $0.id == sourceId })?.title
   }
 
   @ViewBuilder
@@ -78,10 +95,12 @@ struct StoryListView: View {
 
   private var emptyState: some View {
     ContentUnavailableView(
-      model.currentFeedMode == .subreddits ? "No stories yet" : "No listing entries",
+      model.feedSources.isEmpty ? "No feeds yet" : "No stories yet",
       systemImage: "tray",
       description: Text(
-        "Pull down to sync your feed, or check your connection. Downloaded content stays readable offline."
+        model.feedSources.isEmpty
+          ? "Add an RSS feed in Settings to fill your library."
+          : "Pull down to sync your feed, or check your connection. Downloaded content stays readable offline."
       )
     )
   }
@@ -119,36 +138,16 @@ struct StoryListView: View {
     ToolbarItemGroup(placement: .topBarTrailing) {
       Menu {
         Button {
-          model.selectSubreddits()
+          model.selectSubscribedFeed()
         } label: {
           Label(
-            "Subreddits",
-            systemImage: model.currentFeedMode == .subreddits ? "checkmark" : "rectangle.stack"
+            "Subscribed",
+            systemImage: model.currentFeedMode == .subscribed ? "checkmark" : "rectangle.stack"
           )
         }
-        .disabled(!model.hasConfiguredSubreddits)
 
         Section("Private listings") {
-          Menu {
-            ForEach(RedditFrontPageSort.allCases, id: \.self) { sort in
-              Button {
-                model.selectFrontPageSort(sort)
-              } label: {
-                Label(
-                  sort.title,
-                  systemImage: model.currentFeedMode == .privateListing
-                    && model.currentPrivateListing == .frontPage
-                    && model.currentFrontPageSort == sort
-                    ? "checkmark"
-                    : sort.systemImage
-                )
-              }
-            }
-          } label: {
-            Label("Front page", systemImage: "house")
-          }
-
-          ForEach(Self.secondaryPrivateListings, id: \.self) { listing in
+          ForEach(RedditPrivateListing.allCases, id: \.self) { listing in
             Button {
               model.selectPrivateListing(listing)
             } label: {
@@ -179,66 +178,112 @@ struct StoryListView: View {
   }
 }
 
+private struct ScopeBarView: View {
+  @Environment(AppModel.self) private var model: AppModel
+  @Binding var isSourceListExpanded: Bool
+
+  var body: some View {
+    VStack(spacing: 8) {
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 8) {
+          scopeChip(
+            title: "All feeds",
+            systemImage: "rectangle.stack",
+            isActive: model.scope == .all
+          ) { model.selectScope(.all) }
+
+          scopeChip(
+            title: "Reddit",
+            systemImage: "person.crop.circle",
+            isActive: isRedditScope
+          ) { model.selectScope(.reddit) }
+
+          ForEach(model.feedSources) { source in
+            scopeChip(
+              title: source.title,
+              systemImage: source.isEnabled ? "dot.radiowaves.left.and.right" : "pause.circle",
+              isActive: isSourceActive(source.id)
+            ) {
+              model.selectScope(.source(source.id))
+            }
+          }
+        }
+        .padding(.horizontal)
+      }
+
+      if isSourceListExpanded {
+        Divider()
+        Text("Tap a feed to scope the list. Use Settings to add RSS feeds.")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.horizontal)
+      }
+    }
+    .padding(.vertical, 6)
+    .background(.bar)
+    .contentShape(.rect)
+    .onTapGesture {
+      withAnimation(.easeInOut(duration: 0.15)) {
+        isSourceListExpanded.toggle()
+      }
+    }
+  }
+
+  private var isRedditScope: Bool {
+    if case .reddit = model.scope { return true }
+    return false
+  }
+
+  private func isSourceActive(_ id: String) -> Bool {
+    if case .source(let scopedId) = model.scope { return scopedId == id }
+    return false
+  }
+
+  private func scopeChip(
+    title: String,
+    systemImage: String,
+    isActive: Bool,
+    action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      Label(title, systemImage: systemImage)
+        .font(.footnote.weight(isActive ? .semibold : .regular))
+        .padding(.vertical, 6)
+        .padding(.horizontal, 12)
+        .background(
+          Capsule().fill(isActive ? Color.accentColor.opacity(0.15) : Color.secondary.opacity(0.1))
+        )
+        .foregroundStyle(isActive ? Color.accentColor : Color.primary)
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(title)
+    .accessibilityAddTraits(isActive ? .isSelected : [])
+  }
+}
+
 struct FeedHeaderView: View {
   @Environment(AppModel.self) private var model: AppModel
 
-  private var canChangeSort: Bool {
-    model.currentFeedMode == .privateListing && model.currentPrivateListing == .frontPage
-  }
-
   var body: some View {
-    HStack(spacing: 5) {
-      if canChangeSort {
-        Image(systemName: "chevron.left")
-          .font(.caption2.weight(.bold))
-          .foregroundStyle(.tertiary)
-      }
-
-      Text(model.currentFeedTitle)
-        .font(.headline)
-        .lineLimit(1)
-
-      if canChangeSort {
-        Image(systemName: "chevron.right")
-          .font(.caption2.weight(.bold))
-          .foregroundStyle(.tertiary)
-      }
-    }
-    .contentShape(.rect)
-    .gesture(
-      DragGesture(minimumDistance: 24)
-        .onEnded { value in
-          guard canChangeSort,
-            abs(value.translation.width) > abs(value.translation.height)
-          else {
-            return
-          }
-          model.selectAdjacentFrontPageSort(direction: value.translation.width < 0 ? 1 : -1)
-        }
-    )
-    .accessibilityElement(children: .ignore)
-    .accessibilityLabel(
-      canChangeSort ? "\(model.currentFeedTitle) front page" : model.currentFeedTitle
-    )
-    .accessibilityHint(canChangeSort ? "Swipe left or right to change the front page sort." : "")
-    .accessibilityAction(named: "Show next sort") {
-      model.selectAdjacentFrontPageSort(direction: 1)
-    }
-    .accessibilityAction(named: "Show previous sort") {
-      model.selectAdjacentFrontPageSort(direction: -1)
-    }
+    Text(model.currentFeedTitle)
+      .font(.headline)
+      .lineLimit(1)
+      .accessibilityLabel(model.currentFeedTitle)
   }
 }
 
 struct StoryCardView: View {
   let story: Story
+  let sourceTitle: String?
 
   @Environment(\.openURL) private var openURL
 
   private let preview: String
 
-  init(story: Story) {
+  init(story: Story, sourceTitle: String? = nil) {
     self.story = story
+    self.sourceTitle = sourceTitle
     preview = Self.plainText(from: story.contentBody)
   }
 
@@ -275,12 +320,12 @@ struct StoryCardView: View {
         Button {
           openURL(url)
         } label: {
-          Label("Open on Reddit", systemImage: "safari")
+          Label(openOriginalLabel, systemImage: "safari")
             .font(.footnote.weight(.semibold))
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Open \(story.title) on Reddit")
+        .accessibilityLabel("Open \(story.title) on \(hostLabel)")
       }
     }
     .padding(16)
@@ -302,13 +347,20 @@ struct StoryCardView: View {
         .foregroundStyle(.tint)
         .accessibilityHidden(true)
 
-      Text("r/\(story.subreddit)")
-        .font(.caption.weight(.semibold))
-        .foregroundStyle(.tint)
-        .lineLimit(1)
+      if let sourceTitle {
+        Text(sourceTitle)
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.tint)
+          .lineLimit(1)
+      } else {
+        Text("r/\(story.subreddit)")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.tint)
+          .lineLimit(1)
+      }
 
       if !story.author.isEmpty {
-        Text("u/\(story.author)")
+        Text(story.author.hasPrefix("@") ? story.author : story.author)
           .font(.caption)
           .foregroundStyle(.secondary)
           .lineLimit(1)
@@ -330,9 +382,19 @@ struct StoryCardView: View {
     return url
   }
 
+  private var hostLabel: String {
+    browserURL?.host ?? "the original site"
+  }
+
+  private var openOriginalLabel: String {
+    if sourceTitle == nil { return "Open on Reddit" }
+    return "Open on \(hostLabel)"
+  }
+
   private var cardAccessibilityLabel: String {
     let state = story.isRead ? "Read" : "Unread"
-    return "\(state). \(story.title), r/\(story.subreddit)"
+    let source = sourceTitle ?? "r/\(story.subreddit)"
+    return "\(state). \(story.title), \(source)"
   }
 
   private static func plainText(from html: String) -> String {
@@ -371,6 +433,8 @@ struct StatusFooterView: View {
       return "Offline — showing downloaded stories"
     case .throttled(let date):
       return "Reddit asked us to wait. Next try \(date.formatted(.relative(presentation: .named)))"
+    case .partial(let succeeded, let attempted):
+      return "Updated \(succeeded) of \(attempted) feeds."
     case .failed(let message):
       return message
     }
@@ -386,6 +450,8 @@ struct StatusFooterView: View {
       return "wifi.slash"
     case .throttled:
       return "clock"
+    case .partial:
+      return "exclamationmark.triangle"
     case .failed:
       return "exclamationmark.triangle"
     }
