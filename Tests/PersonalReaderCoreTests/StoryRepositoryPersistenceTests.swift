@@ -104,6 +104,45 @@ final class StoryRepositoryPersistenceTests: XCTestCase {
     XCTAssertFalse(try repository.markRead(id: "missing"))
   }
 
+  func testMarkReadBatchMarksOnlyUnreadStories() throws {
+    let repository = try StoryRepository.inMemory()
+    try repository.save([
+      makeStory(id: "a", publishedAt: 100),
+      makeStory(id: "b", publishedAt: 200),
+      makeStory(id: "c", publishedAt: 300),
+    ])
+    try repository.markRead(id: "b")
+
+    let changed = try repository.markRead(ids: ["a", "b", "c", "missing"])
+
+    XCTAssertEqual(changed, 2)
+    XCTAssertEqual(try repository.fetchUnreadCount(), 0)
+    XCTAssertEqual(try repository.fetchStories().map(\.id), ["c", "b", "a"])
+    XCTAssertTrue(try repository.fetchStories().allSatisfy(\.isRead))
+  }
+
+  func testMarkReadBatchWithEmptyIDsIsNoop() throws {
+    let repository = try StoryRepository.inMemory()
+    try repository.save([makeStory(id: "a", publishedAt: 100)])
+
+    XCTAssertEqual(try repository.markRead(ids: []), 0)
+    XCTAssertEqual(try repository.fetchUnreadCount(), 1)
+  }
+
+  func testMarkReadBatchPreservesContentOnSync() throws {
+    let repository = try StoryRepository.inMemory()
+    try repository.save([makeStory(id: "a", publishedAt: 100)])
+    _ = try repository.markRead(ids: ["a"])
+
+    var refreshed = makeStory(id: "a", publishedAt: 100)
+    refreshed.title = "Updated title"
+    _ = try repository.save([refreshed])
+
+    let story = try XCTUnwrap(repository.fetchStories().first)
+    XCTAssertTrue(story.isRead)
+    XCTAssertEqual(story.title, "Updated title")
+  }
+
   func testDeleteAllDataClearsStoriesAndSyncState() throws {
     let repository = try StoryRepository.inMemory()
     try repository.save([makeStory(id: "a", publishedAt: 1)])

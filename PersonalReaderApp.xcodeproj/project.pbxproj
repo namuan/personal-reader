@@ -20,10 +20,12 @@
 		651CFBC250711AE274C2618B /* WebPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBF8E7F68DACDAA70CFE2B45 /* WebPreviewView.swift */; };
 		735196AA87F9E9FE64513D18 /* ReaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC8AE143C54070A4C6166ACF /* ReaderView.swift */; };
 		8577264486BDF7CCF1DBBD60 /* PersonalReaderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = D71508CCCFBB985BBA88455A /* PersonalReaderApp.swift */; };
+		89B338173B2861C9704ADDF4 /* TestEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBD20CD829283C32863A945A /* TestEnvironment.swift */; };
 		900B7679087170AC1BE34F5D /* FeedEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F8EF687B77D9B1522C551D5 /* FeedEditorView.swift */; };
 		9043AC0570205196AD093E92 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9250794BA9381F4D09E5F5B /* SettingsView.swift */; };
 		B55B58498A3198233EBA03A7 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 5F46435C11C336408991F3F3 /* PrivacyInfo.xcprivacy */; };
 		BC43B2B2E3C9C6A604BD2A4B /* FeedManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 188BDA532D5AAE80470712F8 /* FeedManagementView.swift */; };
+		CA36FFE4A8575F09B4102AFA /* SeenStoryTrackingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE0AAA83E62AA1DA199B664E /* SeenStoryTrackingTests.swift */; };
 		CDCE2C1F3139C539FDAAB63B /* PrivateListingPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92A6096884851BC20CF12E3D /* PrivateListingPresentation.swift */; };
 		D8C17278FA6B857346930129 /* ReaderImageLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 831796A4E46B9EC1C91BE862 /* ReaderImageLayoutTests.swift */; };
 		E8F22AB19BEA8F8537D8D381 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = FE931B35B77072864B5D31EE /* Localizable.xcstrings */; };
@@ -65,7 +67,9 @@
 		CC8AE143C54070A4C6166ACF /* ReaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReaderView.swift; sourceTree = "<group>"; };
 		D71508CCCFBB985BBA88455A /* PersonalReaderApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalReaderApp.swift; sourceTree = "<group>"; };
 		E68837ED416BED6288D0D0B8 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		EE0AAA83E62AA1DA199B664E /* SeenStoryTrackingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeenStoryTrackingTests.swift; sourceTree = "<group>"; };
 		F9250794BA9381F4D09E5F5B /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		FBD20CD829283C32863A945A /* TestEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestEnvironment.swift; sourceTree = "<group>"; };
 		FE931B35B77072864B5D31EE /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -147,6 +151,8 @@
 			children = (
 				831796A4E46B9EC1C91BE862 /* ReaderImageLayoutTests.swift */,
 				689ACF32E58A5B9D57068774 /* RichTextRenderingTests.swift */,
+				EE0AAA83E62AA1DA199B664E /* SeenStoryTrackingTests.swift */,
+				FBD20CD829283C32863A945A /* TestEnvironment.swift */,
 				8E79AE472708E5A71D444D8E /* WebPreviewDestinationTests.swift */,
 			);
 			path = AppTests;
@@ -285,6 +291,8 @@
 			files = (
 				D8C17278FA6B857346930129 /* ReaderImageLayoutTests.swift in Sources */,
 				4602E91AA0C267CC8EEB7367 /* RichTextRenderingTests.swift in Sources */,
+				CA36FFE4A8575F09B4102AFA /* SeenStoryTrackingTests.swift in Sources */,
+				89B338173B2861C9704ADDF4 /* TestEnvironment.swift in Sources */,
 				4172EF4B475E381C92AB230F /* WebPreviewDestinationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

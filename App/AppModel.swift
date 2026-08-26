@@ -39,12 +39,13 @@ final class AppModel {
     }
   }
 
-  var showUnreadOnly = false {
+  var showUnreadOnly = true {
     didSet { restartObservation() }
   }
 
   var filteredStories: [Story] {
-    showUnreadOnly ? stories.filter { !$0.isRead } : stories
+    guard showUnreadOnly else { return stories }
+    return stories.filter { !$0.isRead || sessionSeenIDs.contains($0.id) }
   }
 
   var savedPreferences: UserPreferences {
@@ -87,6 +88,13 @@ final class AppModel {
   var environmentIfAvailable: AppEnvironment { environment }
   private var observationCancellable: AnyDatabaseCancellable?
 
+  private var pendingSeenStoryIDs: Set<String> = []
+  private var pendingSeenStoryIDList: [String] = []
+  private var seenFlushTask: Task<Void, Never>?
+  private var furthestVisibleStoryID: String?
+  private var displaySessionStoryIDs: [String] = []
+  private var sessionSeenIDs: Set<String> = []
+
   init(environment: AppEnvironment) {
     self.environment = environment
   }
@@ -110,6 +118,7 @@ final class AppModel {
       syncStatus = .failed("Feed settings are incomplete. Check Settings.")
       return
     }
+    flushSeenStories()
     if !isBackground {
       syncStatus = .syncing
     }
@@ -121,11 +130,65 @@ final class AppModel {
     loadFeedSources()
     loadSyncState()
     applyLibraryReport(report, isBackground: isBackground)
+    displaySessionDidReset()
   }
 
   func markRead(_ story: Story) {
     guard !story.isRead else { return }
     _ = try? environment.repository.markRead(id: story.id)
+  }
+
+  func recordVisibleStories(_ visibleIDs: [String]) {
+    let displayOrder = displaySessionStoryIDs.isEmpty ? stories.map(\.id) : displaySessionStoryIDs
+    guard !displayOrder.isEmpty else { return }
+    let idSet = Set(visibleIDs)
+
+    guard let topIndex = displayOrder.firstIndex(where: idSet.contains) else { return }
+
+    if let furthestID = furthestVisibleStoryID,
+      let furthestIndex = displayOrder.firstIndex(of: furthestID)
+    {
+      guard topIndex > furthestIndex else { return }
+      let newlyPassed = Array(displayOrder[furthestIndex..<topIndex])
+      if !newlyPassed.isEmpty {
+        enqueueSeen(newlyPassed)
+      }
+    }
+    furthestVisibleStoryID = displayOrder[topIndex]
+  }
+
+  func displaySessionDidReset() {
+    furthestVisibleStoryID = nil
+    displaySessionStoryIDs = []
+    sessionSeenIDs = []
+  }
+
+  func flushSeenStories() {
+    seenFlushTask?.cancel()
+    seenFlushTask = nil
+    guard !pendingSeenStoryIDList.isEmpty else { return }
+    let ids = pendingSeenStoryIDList
+    pendingSeenStoryIDList = []
+    pendingSeenStoryIDs = []
+    sessionSeenIDs.formUnion(ids)
+    _ = try? environment.repository.markRead(ids: ids)
+  }
+
+  private func enqueueSeen(_ ids: [String]) {
+    for id in ids where !pendingSeenStoryIDs.contains(id) {
+      pendingSeenStoryIDs.insert(id)
+      pendingSeenStoryIDList.append(id)
+    }
+    if pendingSeenStoryIDList.count >= 10 {
+      flushSeenStories()
+      return
+    }
+    seenFlushTask?.cancel()
+    seenFlushTask = Task { [weak self] in
+      try? await Task.sleep(for: .seconds(2))
+      guard !Task.isCancelled else { return }
+      self?.flushSeenStories()
+    }
   }
 
   func loadOlderStories() async {
@@ -333,6 +396,7 @@ final class AppModel {
     preferences.privateListing = listing
     environment.preferences.preferences = preferences
     resetRedditFeed()
+    displaySessionDidReset()
     Task { await refresh(force: true) }
   }
 
@@ -343,6 +407,7 @@ final class AppModel {
     preferences.feedMode = .subscribed
     environment.preferences.preferences = preferences
     resetRedditFeed()
+    displaySessionDidReset()
     Task { await refresh(force: true) }
   }
 
@@ -486,7 +551,7 @@ final class AppModel {
     isLoadingOlderStories = false
     hasMoreStories = true
     syncStatus = .idle
-    showUnreadOnly = false
+    showUnreadOnly = true
     scope = .all
     loadFeedSources()
     phase = .setup
@@ -691,7 +756,7 @@ final class AppModel {
     lastSyncDate = nil
     isLoadingOlderStories = false
     hasMoreStories = true
-    showUnreadOnly = false
+    showUnreadOnly = true
     restartObservation()
   }
 
@@ -734,7 +799,7 @@ final class AppModel {
     }
   }
 
-  private func startObservation() {
+  func startObservation() {
     observationCancellable?.cancel()
     let repository = environment.repository
     let enabledIds = enabledSourceIds()
@@ -762,7 +827,16 @@ final class AppModel {
 
   private func apply(stories updatedStories: [Story]) {
     let scoped = filteredStoriesForScope(updatedStories)
+    let updatedIDs = scoped.map(\.id)
+    if displaySessionStoryIDs.isEmpty || !sameTopSequence(displaySessionStoryIDs, updatedIDs) {
+      displaySessionStoryIDs = updatedIDs
+    }
     stories = scoped
     unreadCount = scoped.reduce(0) { $0 + ($1.isRead ? 0 : 1) }
+  }
+
+  private func sameTopSequence(_ lhs: [String], _ rhs: [String]) -> Bool {
+    guard lhs.count <= rhs.count else { return false }
+    return zip(lhs, rhs).allSatisfy { $0 == $1 }
   }
 }

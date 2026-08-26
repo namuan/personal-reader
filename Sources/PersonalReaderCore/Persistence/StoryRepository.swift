@@ -259,6 +259,17 @@ public struct StoryRepository: Sendable {
   }
 
   @discardableResult
+  public func markRead(ids: [String], isRead: Bool = true) throws -> Int {
+    guard !ids.isEmpty else { return 0 }
+    return try databaseQueue.write { database in
+      try Story
+        .filter(ids.contains(Story.Columns.id))
+        .filter(Story.Columns.isRead == !isRead)
+        .updateAll(database, Story.Columns.isRead.set(to: isRead))
+    }
+  }
+
+  @discardableResult
   public func deletePublished(before timestamp: Int64, sourceId: String? = nil) throws -> Int {
     try databaseQueue.write { database in
       var request = Story.filter(Story.Columns.publishedAt < timestamp)

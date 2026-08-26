@@ -37,7 +37,9 @@ struct PersonalReaderApp: App {
   }
 
   private func handle(scenePhaseChange newPhase: ScenePhase) {
-    guard newPhase == .background else { return }
-    backgroundCoordinator.scheduleNextRefresh()
+    if newPhase == .background {
+      model?.flushSeenStories()
+      backgroundCoordinator.scheduleNextRefresh()
+    }
   }
 }

@@ -5,6 +5,7 @@ struct StoryListView: View {
   @Environment(AppModel.self) private var model: AppModel
 
   @State private var isSettingsPresented = false
+  @State private var topVisibleStoryID: String?
 
   var body: some View {
     NavigationStack {
@@ -37,6 +38,7 @@ struct StoryListView: View {
       LazyVStack(spacing: 12) {
         ForEach(Array(model.filteredStories.enumerated()), id: \.element.id) { index, story in
           StoryCardView(story: story, sourceTitle: sourceTitle(for: story.sourceId))
+            .id(story.id)
             .onAppear {
               handleStoryAppeared(at: index)
             }
@@ -46,6 +48,12 @@ struct StoryListView: View {
       }
       .padding(.horizontal)
       .padding(.vertical, 12)
+      .scrollTargetLayout()
+    }
+    .scrollPosition(id: $topVisibleStoryID)
+    .onChange(of: topVisibleStoryID) { _, newID in
+      guard let newID else { return }
+      model.recordVisibleStories([newID])
     }
     .navigationDestination(for: Story.self) { story in
       ReaderView(story: story)
