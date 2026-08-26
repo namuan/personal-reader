@@ -8,7 +8,6 @@ struct RootView: View {
 
   var body: some View {
     content
-      .environment(\.openURL, previewOpenURLAction)
       .sheet(item: $webPreviewDestination) { destination in
         WebPreviewView(destination: destination)
       }
@@ -33,6 +32,7 @@ struct RootView: View {
         }
       case .ready:
         StoryListView()
+          .environment(\.openURL, previewOpenURLAction)
           .transition(.opacity)
       }
     }
