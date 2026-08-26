@@ -4,7 +4,18 @@ import SwiftUI
 struct RootView: View {
   @Environment(AppModel.self) private var model: AppModel?
 
+  @State private var webPreviewDestination: WebPreviewDestination?
+
   var body: some View {
+    content
+      .environment(\.openURL, previewOpenURLAction)
+      .sheet(item: $webPreviewDestination) { destination in
+        WebPreviewView(destination: destination)
+      }
+  }
+
+  @ViewBuilder
+  private var content: some View {
     switch model {
     case .none:
       ContentUnavailableView(
@@ -24,6 +35,16 @@ struct RootView: View {
         StoryListView()
           .transition(.opacity)
       }
+    }
+  }
+
+  private var previewOpenURLAction: OpenURLAction {
+    OpenURLAction { url in
+      guard let destination = WebPreviewDestination(url: url) else {
+        return .systemAction
+      }
+      webPreviewDestination = destination
+      return .handled
     }
   }
 }
