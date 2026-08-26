@@ -6,11 +6,17 @@ struct RichTextView: View {
 
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
   @State private var attributedText: NSAttributedString?
+  @State private var presentedImage: PresentedImage?
 
   var body: some View {
     Group {
       if let attributedText {
-        AttributedTextView(attributedText: attributedText)
+        AttributedTextView(
+          attributedText: attributedText,
+          onImageTap: { image in
+            presentedImage = PresentedImage(image: image)
+          }
+        )
       } else {
         HStack(spacing: 10) {
           ProgressView()
@@ -27,6 +33,9 @@ struct RichTextView: View {
       await Task.yield()
       guard !Task.isCancelled else { return }
       attributedText = Self.styledAttributedString(from: html)
+    }
+    .fullScreenCover(item: $presentedImage) { item in
+      FullScreenImageView(image: item.image)
     }
   }
 
@@ -74,10 +83,16 @@ struct RichTextView: View {
     let html: String
     let dynamicTypeSize: DynamicTypeSize
   }
+
+  private struct PresentedImage: Identifiable {
+    let id = UUID()
+    let image: UIImage
+  }
 }
 
-private struct AttributedTextView: UIViewRepresentable {
+struct AttributedTextView: UIViewRepresentable {
   let attributedText: NSAttributedString
+  var onImageTap: (UIImage) -> Void = { _ in }
 
   @Environment(\.openURL) private var openURL
 
@@ -92,12 +107,26 @@ private struct AttributedTextView: UIViewRepresentable {
     textView.adjustsFontForContentSizeCategory = true
     textView.delegate = context.coordinator
     textView.accessibilityLabel = "Story content"
+
+    let imageTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
+    imageTap.cancelsTouchesInView = false
+    textView.addGestureRecognizer(imageTap)
+    context.coordinator.textView = textView
+
     return textView
   }
 
   func updateUIView(_ textView: UITextView, context: Context) {
-    if !textView.attributedText.isEqual(to: attributedText) {
-      textView.attributedText = attributedText
+    context.coordinator.onImageTap = onImageTap
+
+    let availableWidth = textView.bounds.width
+    let renderedText =
+      availableWidth > 0
+      ? Self.fittedAttributedString(attributedText, maxWidth: availableWidth)
+      : attributedText
+
+    if !textView.attributedText.isEqual(to: renderedText) {
+      textView.attributedText = renderedText
       textView.invalidateIntrinsicContentSize()
     }
   }
@@ -108,6 +137,12 @@ private struct AttributedTextView: UIViewRepresentable {
     context: Context
   ) -> CGSize? {
     guard let width = proposal.width, width > 0 else { return nil }
+
+    let renderedText = Self.fittedAttributedString(attributedText, maxWidth: width)
+    if !uiView.attributedText.isEqual(to: renderedText) {
+      uiView.attributedText = renderedText
+    }
+
     let fitted = uiView.sizeThatFits(
       CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)
     )
@@ -115,14 +150,93 @@ private struct AttributedTextView: UIViewRepresentable {
   }
 
   func makeCoordinator() -> Coordinator {
-    Coordinator(openURL: openURL)
+    Coordinator(openURL: openURL, onImageTap: onImageTap)
+  }
+
+  static func fittedAttributedString(
+    _ source: NSAttributedString,
+    maxWidth: CGFloat
+  ) -> NSAttributedString {
+    guard maxWidth > 0, source.length > 0 else { return source }
+
+    let mutable = NSMutableAttributedString(attributedString: source)
+    let fullRange = NSRange(location: 0, length: mutable.length)
+
+    mutable.enumerateAttribute(.attachment, in: fullRange) { value, range, _ in
+      guard let attachment = value as? NSTextAttachment,
+        let image = attachment.image,
+        image.size.width > 0,
+        image.size.height > 0,
+        image.size.width > maxWidth
+      else {
+        return
+      }
+
+      let scale = maxWidth / image.size.width
+      let fittedSize = CGSize(
+        width: maxWidth,
+        height: image.size.height * scale
+      )
+
+      let fittedAttachment = NSTextAttachment()
+      fittedAttachment.image = image
+      fittedAttachment.bounds = CGRect(origin: .zero, size: fittedSize)
+      mutable.addAttribute(.attachment, value: fittedAttachment, range: range)
+    }
+
+    return mutable
   }
 
   final class Coordinator: NSObject, UITextViewDelegate {
     let openURL: OpenURLAction
+    var onImageTap: (UIImage) -> Void
+    weak var textView: UITextView?
 
-    init(openURL: OpenURLAction) {
+    init(openURL: OpenURLAction, onImageTap: @escaping (UIImage) -> Void) {
       self.openURL = openURL
+      self.onImageTap = onImageTap
+    }
+
+    @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
+      guard recognizer.state == .ended,
+        let textView,
+        textView.attributedText.length > 0
+      else {
+        return
+      }
+
+      var location = recognizer.location(in: textView)
+      location.x -= textView.textContainerInset.left
+      location.y -= textView.textContainerInset.top
+
+      let layoutManager = textView.layoutManager
+      let textContainer = textView.textContainer
+      let glyphIndex = layoutManager.glyphIndex(
+        for: location,
+        in: textContainer,
+        fractionOfDistanceThroughGlyph: nil
+      )
+      guard glyphIndex < layoutManager.numberOfGlyphs else { return }
+
+      let glyphRect = layoutManager.boundingRect(
+        forGlyphRange: NSRange(location: glyphIndex, length: 1),
+        in: textContainer
+      )
+      guard glyphRect.insetBy(dx: -8, dy: -8).contains(location) else { return }
+
+      let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+      guard characterIndex < textView.attributedText.length,
+        let attachment = textView.attributedText.attribute(
+          .attachment,
+          at: characterIndex,
+          effectiveRange: nil
+        ) as? NSTextAttachment,
+        let image = attachment.image
+      else {
+        return
+      }
+
+      onImageTap(image)
     }
 
     func textView(
@@ -137,6 +251,36 @@ private struct AttributedTextView: UIViewRepresentable {
       default:
         return false
       }
+    }
+  }
+}
+
+private struct FullScreenImageView: View {
+  let image: UIImage
+
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    NavigationStack {
+      ZStack {
+        Color.black.ignoresSafeArea()
+
+        Image(uiImage: image)
+          .resizable()
+          .scaledToFit()
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+          .accessibilityLabel("Story image")
+      }
+      .toolbar {
+        ToolbarItem(placement: .topBarTrailing) {
+          Button("Done") {
+            dismiss()
+          }
+          .tint(.white)
+        }
+      }
+      .toolbarBackground(.black, for: .navigationBar)
+      .toolbarColorScheme(.dark, for: .navigationBar)
     }
   }
 }
