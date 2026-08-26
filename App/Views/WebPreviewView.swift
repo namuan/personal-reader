@@ -7,7 +7,10 @@ struct WebPreviewDestination: Identifiable, Equatable {
   var id: String { url.absoluteString }
 
   init?(url: URL?) {
-    guard let url, let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+    guard let url,
+      let scheme = url.scheme?.lowercased(),
+      scheme == "http" || scheme == "https"
+    else {
       return nil
     }
     self.url = url
