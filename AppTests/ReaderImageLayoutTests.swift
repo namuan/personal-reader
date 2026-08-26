@@ -3,6 +3,7 @@ import XCTest
 
 @testable import PersonalReaderApp
 
+@MainActor
 final class ReaderImageLayoutTests: XCTestCase {
   func testOversizedImageIsScaledToAvailableWidth() throws {
     let image = makeImage(size: CGSize(width: 1200, height: 600))
