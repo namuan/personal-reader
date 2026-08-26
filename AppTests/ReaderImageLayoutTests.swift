@@ -21,9 +21,10 @@ final class ReaderImageLayoutTests: XCTestCase {
 
     let fitted = AttributedTextView.fittedAttributedString(source, maxWidth: 300)
     let attachment = try XCTUnwrap(attachment(in: fitted))
+    let fittedImage = try XCTUnwrap(attachment.image)
 
-    XCTAssertEqual(attachment.image?.size.width, 120, accuracy: 0.01)
-    XCTAssertEqual(attachment.image?.size.height, 60, accuracy: 0.01)
+    XCTAssertEqual(fittedImage.size.width, 120, accuracy: 0.01)
+    XCTAssertEqual(fittedImage.size.height, 60, accuracy: 0.01)
     XCTAssertEqual(attachment.bounds, .zero)
   }
 
@@ -64,8 +65,8 @@ final class ReaderImageLayoutTests: XCTestCase {
   private func makeImage(size: CGSize) -> UIImage {
     let renderer = UIGraphicsImageRenderer(size: size)
     return renderer.image { context in
-      UIColor.black.setFill()
-      context.fill(CGRect(origin: .zero, size: size))
+      context.cgContext.setFillColor(UIColor.black.cgColor)
+      context.cgContext.fill(CGRect(origin: .zero, size: size))
     }
   }
 }
