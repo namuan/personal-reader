@@ -108,7 +108,10 @@ struct AttributedTextView: UIViewRepresentable {
     textView.delegate = context.coordinator
     textView.accessibilityLabel = "Story content"
 
-    let imageTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
+    let imageTap = UITapGestureRecognizer(
+      target: context.coordinator,
+      action: #selector(Coordinator.handleTap(_:))
+    )
     imageTap.cancelsTouchesInView = false
     textView.addGestureRecognizer(imageTap)
     context.coordinator.textView = textView
