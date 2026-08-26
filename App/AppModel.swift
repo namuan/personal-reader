@@ -66,7 +66,7 @@ final class AppModel {
   var currentFeedTitle: String {
     switch scope {
     case .all:
-      return "All feeds"
+      return redditTitle()
     case .reddit:
       return redditTitle()
     case .source(let id):
