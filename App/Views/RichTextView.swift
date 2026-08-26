@@ -104,6 +104,7 @@ struct AttributedTextView: UIViewRepresentable {
     textView.backgroundColor = .clear
     textView.textContainerInset = .zero
     textView.textContainer.lineFragmentPadding = 0
+    textView.textContainer.widthTracksTextView = true
     textView.adjustsFontForContentSizeCategory = true
     textView.delegate = context.coordinator
     textView.accessibilityLabel = "Story content"
@@ -167,23 +168,28 @@ struct AttributedTextView: UIViewRepresentable {
 
     mutable.enumerateAttribute(.attachment, in: fullRange) { value, range, _ in
       guard let attachment = value as? NSTextAttachment,
-        let image = attachment.image,
-        image.size.width > 0,
-        image.size.height > 0,
-        image.size.width > maxWidth
+        let image = attachment.image(
+          forBounds: attachment.bounds,
+          textContainer: nil,
+          characterIndex: range.location
+        ) ?? attachment.image
       else {
         return
       }
 
-      let scale = maxWidth / image.size.width
-      let fittedSize = CGSize(
-        width: maxWidth,
-        height: image.size.height * scale
-      )
+      let displayedSize =
+        attachment.bounds.size.width > 0 && attachment.bounds.size.height > 0
+        ? attachment.bounds.size
+        : image.size
+      guard displayedSize.width > maxWidth, displayedSize.height > 0 else { return }
 
+      let scale = maxWidth / displayedSize.width
       let fittedAttachment = NSTextAttachment()
       fittedAttachment.image = image
-      fittedAttachment.bounds = CGRect(origin: .zero, size: fittedSize)
+      fittedAttachment.bounds = CGRect(
+        origin: .zero,
+        size: CGSize(width: maxWidth, height: displayedSize.height * scale)
+      )
       mutable.addAttribute(.attachment, value: fittedAttachment, range: range)
     }
 

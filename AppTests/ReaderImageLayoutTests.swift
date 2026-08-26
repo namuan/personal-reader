@@ -16,6 +16,20 @@ final class ReaderImageLayoutTests: XCTestCase {
     XCTAssertEqual(attachment.bounds.height, 150, accuracy: 0.01)
   }
 
+  func testOversizedAttachmentBoundsAreScaledToAvailableWidth() throws {
+    let image = makeImage(size: CGSize(width: 120, height: 60))
+    let sourceAttachment = NSTextAttachment()
+    sourceAttachment.image = image
+    sourceAttachment.bounds = CGRect(x: 0, y: 0, width: 1200, height: 600)
+    let source = NSAttributedString(attachment: sourceAttachment)
+
+    let fitted = AttributedTextView.fittedAttributedString(source, maxWidth: 300)
+    let fittedAttachment = try XCTUnwrap(attachment(in: fitted))
+
+    XCTAssertEqual(fittedAttachment.bounds.width, 300, accuracy: 0.01)
+    XCTAssertEqual(fittedAttachment.bounds.height, 150, accuracy: 0.01)
+  }
+
   func testSmallImageIsNotUpscaled() throws {
     let image = makeImage(size: CGSize(width: 120, height: 60))
     let source = attributedString(with: image)
