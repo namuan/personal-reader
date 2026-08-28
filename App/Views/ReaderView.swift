@@ -5,6 +5,7 @@ struct ReaderView: View {
   @Environment(\.openURL) private var openURL
 
   let story: Story
+  let sourceTitle: String?
 
   var body: some View {
     ScrollView {
@@ -35,7 +36,7 @@ struct ReaderView: View {
           Button {
             openURL(url)
           } label: {
-            Label("Open original on Reddit", systemImage: "safari")
+            Label(openOriginalLabel(for: url), systemImage: "safari")
           }
           .padding(.top, 8)
         }
@@ -43,6 +44,11 @@ struct ReaderView: View {
       .padding()
     }
     .navigationBarTitleDisplayMode(.inline)
+  }
+
+  private func openOriginalLabel(for url: URL) -> String {
+    if sourceTitle == nil { return "Open on Reddit" }
+    return "Open on \(url.host ?? "the original site")"
   }
 
   private var metaLine: String {

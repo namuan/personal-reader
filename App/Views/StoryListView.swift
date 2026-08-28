@@ -85,7 +85,7 @@ struct StoryListView: View {
       model.recordVisibleStories([newID])
     }
     .navigationDestination(for: Story.self) { story in
-      ReaderView(story: story)
+      ReaderView(story: story, sourceTitle: sourceTitle(for: story.sourceId))
     }
   }
 
