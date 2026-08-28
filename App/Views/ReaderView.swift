@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ReaderView: View {
   @Environment(\.openURL) private var openURL
+  @Environment(AppModel.self) private var model
 
   let story: Story
   let sourceTitle: String?
@@ -44,6 +45,9 @@ struct ReaderView: View {
       .padding()
     }
     .navigationBarTitleDisplayMode(.inline)
+    .onDisappear {
+      model.markStoryRead(id: story.id)
+    }
   }
 
   private func openOriginalLabel(for url: URL) -> String {

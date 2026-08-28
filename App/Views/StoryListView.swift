@@ -11,7 +11,6 @@ struct StoryListView: View {
 
   @State private var isSettingsPresented = false
   @State private var isConfirmingMarkAllRead = false
-  @State private var topVisibleStoryID: String?
 
   var body: some View {
     NavigationStack {
@@ -77,12 +76,6 @@ struct StoryListView: View {
       }
       .padding(.horizontal)
       .padding(.vertical, 12)
-      .scrollTargetLayout()
-    }
-    .scrollPosition(id: $topVisibleStoryID)
-    .onChange(of: topVisibleStoryID) { _, newID in
-      guard let newID else { return }
-      model.recordVisibleStories([newID])
     }
     .navigationDestination(for: Story.self) { story in
       ReaderView(story: story, sourceTitle: sourceTitle(for: story.sourceId))
@@ -107,9 +100,8 @@ struct StoryListView: View {
     let sharedIDs = previousIDSet.intersection(currentIDSet)
     let reordered =
       previousIDs.filter(sharedIDs.contains) != currentIDs.filter(sharedIDs.contains)
-    let anchorPresent = topVisibleStoryID.map(currentIDSet.contains) ?? false
     storyListLogger.notice(
-      "visible cards changed previous=\(previousIDs.count, privacy: .public) current=\(currentIDs.count, privacy: .public) inserted=\(currentIDSet.subtracting(previousIDSet).count, privacy: .public) removed=\(previousIDSet.subtracting(currentIDSet).count, privacy: .public) reordered=\(reordered, privacy: .public) anchorPresent=\(anchorPresent, privacy: .public) unreadOnly=\(model.showUnreadOnly, privacy: .public)"
+      "visible cards changed previous=\(previousIDs.count, privacy: .public) current=\(currentIDs.count, privacy: .public) inserted=\(currentIDSet.subtracting(previousIDSet).count, privacy: .public) removed=\(previousIDSet.subtracting(currentIDSet).count, privacy: .public) reordered=\(reordered, privacy: .public) unreadOnly=\(model.showUnreadOnly, privacy: .public)"
     )
   }
 

@@ -57,7 +57,7 @@ final class AppModel {
 
   var filteredStories: [Story] {
     guard showUnreadOnly else { return stories }
-    return stories.filter { !$0.isRead || sessionSeenIDs.contains($0.id) }
+    return stories.filter { !$0.isRead }
   }
 
   var savedPreferences: UserPreferences {
@@ -100,13 +100,6 @@ final class AppModel {
   var environmentIfAvailable: AppEnvironment { environment }
   private var observationCancellable: AnyDatabaseCancellable?
 
-  private var pendingSeenStoryIDs: Set<String> = []
-  private var pendingSeenStoryIDList: [String] = []
-  private var seenFlushTask: Task<Void, Never>?
-  private var furthestVisibleStoryID: String?
-  private var displaySessionStoryIDs: [String] = []
-  private var sessionSeenIDs: Set<String> = []
-
   init(environment: AppEnvironment) {
     self.environment = environment
   }
@@ -132,9 +125,8 @@ final class AppModel {
       return
     }
     refreshLogger.notice(
-      "refresh started force=\(force, privacy: .public) background=\(isBackground, privacy: .public) stories=\(self.stories.count, privacy: .public) unread=\(self.unreadCount, privacy: .public) pendingSeen=\(self.pendingSeenStoryIDList.count, privacy: .public)"
+      "refresh started force=\(force, privacy: .public) background=\(isBackground, privacy: .public) stories=\(self.stories.count, privacy: .public) unread=\(self.unreadCount, privacy: .public)"
     )
-    flushSeenStories()
     if !isBackground {
       syncStatus = .syncing
     }
@@ -149,11 +141,9 @@ final class AppModel {
     loadFeedSources()
     loadSyncState()
     applyLibraryReport(report, isBackground: isBackground)
-    displaySessionDidReset(reason: "refresh-completed")
   }
 
   func markAllStoriesRead() {
-    flushSeenStories()
     let unreadIDs = stories.filter { !$0.isRead }.map(\.id)
     guard !unreadIDs.isEmpty else {
       listLogger.debug("mark all read ignored because current scope has no unread stories")
@@ -164,96 +154,20 @@ final class AppModel {
       listLogger.notice(
         "mark all read completed requested=\(unreadIDs.count, privacy: .public) changed=\(changed, privacy: .public)"
       )
-      displaySessionDidReset(reason: "mark-all-read")
     } catch {
       listLogger.error("mark all read failed requested=\(unreadIDs.count, privacy: .public)")
       syncStatus = .failed("Could not mark stories as read. Try again.")
     }
   }
 
-  func recordVisibleStories(_ visibleIDs: [String]) {
-    let displayOrder = displaySessionStoryIDs.isEmpty ? stories.map(\.id) : displaySessionStoryIDs
-    guard !displayOrder.isEmpty else {
-      listLogger.debug("scroll anchor ignored because the display session is empty")
-      return
-    }
-    let idSet = Set(visibleIDs)
-
-    guard let topIndex = displayOrder.firstIndex(where: idSet.contains) else {
-      listLogger.debug(
-        "scroll anchor missing from display session visible=\(visibleIDs.count, privacy: .public) session=\(displayOrder.count, privacy: .public)"
-      )
-      return
-    }
-
-    guard let furthestID = furthestVisibleStoryID,
-      let furthestIndex = displayOrder.firstIndex(of: furthestID)
-    else {
-      furthestVisibleStoryID = displayOrder[topIndex]
-      listLogger.debug("scroll session initialized topIndex=\(topIndex, privacy: .public)")
-      return
-    }
-
-    guard topIndex > furthestIndex else {
-      if topIndex < furthestIndex {
-        listLogger.debug(
-          "scroll moved backward topIndex=\(topIndex, privacy: .public) furthestIndex=\(furthestIndex, privacy: .public)"
-        )
-      }
-      return
-    }
-
-    let newlyPassed = Array(displayOrder[furthestIndex..<topIndex])
-    if !newlyPassed.isEmpty {
-      listLogger.notice(
-        "scroll queued read marks count=\(newlyPassed.count, privacy: .public) from=\(furthestIndex, privacy: .public) to=\(topIndex, privacy: .public)"
-      )
-      enqueueSeen(newlyPassed)
-    }
-    furthestVisibleStoryID = displayOrder[topIndex]
-  }
-
-  func displaySessionDidReset(reason: String = "manual") {
-    listLogger.notice(
-      "display session reset reason=\(reason, privacy: .public) displayed=\(self.displaySessionStoryIDs.count, privacy: .public) seen=\(self.sessionSeenIDs.count, privacy: .public) pending=\(self.pendingSeenStoryIDList.count, privacy: .public)"
-    )
-    furthestVisibleStoryID = nil
-    displaySessionStoryIDs = []
-    sessionSeenIDs = []
-  }
-
-  func flushSeenStories() {
-    seenFlushTask?.cancel()
-    seenFlushTask = nil
-    guard !pendingSeenStoryIDList.isEmpty else { return }
-    let ids = pendingSeenStoryIDList
-    pendingSeenStoryIDList = []
-    pendingSeenStoryIDs = []
-    sessionSeenIDs.formUnion(ids)
+  func markStoryRead(id: String) {
     do {
-      let changed = try environment.repository.markRead(ids: ids)
-      listLogger.debug(
-        "pending read marks flushed requested=\(ids.count, privacy: .public) changed=\(changed, privacy: .public)"
-      )
+      let changed = try environment.repository.markRead(id: id)
+      if changed {
+        listLogger.debug("story marked read id=\(id, privacy: .public)")
+      }
     } catch {
-      listLogger.error("pending read marks failed requested=\(ids.count, privacy: .public)")
-    }
-  }
-
-  private func enqueueSeen(_ ids: [String]) {
-    for id in ids where !pendingSeenStoryIDs.contains(id) {
-      pendingSeenStoryIDs.insert(id)
-      pendingSeenStoryIDList.append(id)
-    }
-    if pendingSeenStoryIDList.count >= 10 {
-      flushSeenStories()
-      return
-    }
-    seenFlushTask?.cancel()
-    seenFlushTask = Task { [weak self] in
-      try? await Task.sleep(for: .seconds(2))
-      guard !Task.isCancelled else { return }
-      self?.flushSeenStories()
+      listLogger.error("mark read failed id=\(id, privacy: .public)")
     }
   }
 
@@ -482,7 +396,6 @@ final class AppModel {
     preferences.privateListing = listing
     environment.preferences.preferences = preferences
     resetRedditFeed()
-    displaySessionDidReset(reason: "private-listing-changed")
     Task { await refresh(force: true) }
   }
 
@@ -493,7 +406,6 @@ final class AppModel {
     preferences.feedMode = .subscribed
     environment.preferences.preferences = preferences
     resetRedditFeed()
-    displaySessionDidReset(reason: "subscribed-feed-changed")
     Task { await refresh(force: true) }
   }
 
@@ -992,20 +904,10 @@ final class AppModel {
         count += 1
       }
     }
-    let resetDisplayOrder =
-      displaySessionStoryIDs.isEmpty || !sameTopSequence(displaySessionStoryIDs, updatedIDs)
-    if resetDisplayOrder {
-      displaySessionStoryIDs = updatedIDs
-    }
     stories = scoped
     unreadCount = scoped.reduce(0) { $0 + ($1.isRead ? 0 : 1) }
     listLogger.notice(
-      "list snapshot source=\(source, privacy: .public) incoming=\(updatedStories.count, privacy: .public) scoped=\(scoped.count, privacy: .public) inserted=\(updatedIDSet.subtracting(previousIDs).count, privacy: .public) removed=\(previousIDs.subtracting(updatedIDSet).count, privacy: .public) changed=\(changedCount, privacy: .public) unread=\(self.unreadCount, privacy: .public) resetOrder=\(resetDisplayOrder, privacy: .public)"
+      "list snapshot source=\(source, privacy: .public) incoming=\(updatedStories.count, privacy: .public) scoped=\(scoped.count, privacy: .public) inserted=\(updatedIDSet.subtracting(previousIDs).count, privacy: .public) removed=\(previousIDs.subtracting(updatedIDSet).count, privacy: .public) changed=\(changedCount, privacy: .public) unread=\(self.unreadCount, privacy: .public)"
     )
-  }
-
-  private func sameTopSequence(_ lhs: [String], _ rhs: [String]) -> Bool {
-    guard lhs.count <= rhs.count else { return false }
-    return zip(lhs, rhs).allSatisfy { $0 == $1 }
   }
 }
