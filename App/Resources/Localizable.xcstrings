@@ -50,6 +50,9 @@
         }
       }
     },
+    "Could not mark stories as read. Try again." : {
+
+    },
     "Data" : {
 
     },
@@ -80,6 +83,9 @@
     "Every downloaded story has been read." : {
 
     },
+    "Existing stories will no longer appear in Unread. Newly downloaded stories will still appear." : {
+
+    },
     "Feed source" : {
 
     },
@@ -96,6 +102,15 @@
 
     },
     "Listing" : {
+
+    },
+    "Mark All as Read" : {
+
+    },
+    "Mark all stories as read?" : {
+
+    },
+    "More actions" : {
 
     },
     "No listing entries" : {

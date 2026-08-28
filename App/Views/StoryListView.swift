@@ -1,10 +1,16 @@
+import OSLog
 import PersonalReaderCore
 import SwiftUI
+
+private let storyListLogger = Logger(
+  subsystem: "com.github.namuan.personalreader", category: "visible-cards"
+)
 
 struct StoryListView: View {
   @Environment(AppModel.self) private var model: AppModel
 
   @State private var isSettingsPresented = false
+  @State private var isConfirmingMarkAllRead = false
   @State private var topVisibleStoryID: String?
 
   var body: some View {
@@ -20,11 +26,34 @@ struct StoryListView: View {
       }
       .navigationTitle(model.currentFeedTitle)
       .toolbar { toolbarContent }
+      .onChange(of: model.filteredStories.map(\.id)) { previousIDs, currentIDs in
+        logVisibleCardChange(from: previousIDs, to: currentIDs)
+      }
+      .onChange(of: model.syncStatus) { previousStatus, currentStatus in
+        storyListLogger.info(
+          "footer status changed from=\(syncStatusCategory(previousStatus), privacy: .public) to=\(syncStatusCategory(currentStatus), privacy: .public)"
+        )
+      }
       .refreshable {
+        storyListLogger.notice("pull-to-refresh invoked")
         await model.refresh(force: true)
       }
       .sheet(isPresented: $isSettingsPresented) {
         SettingsView()
+      }
+      .confirmationDialog(
+        "Mark all stories as read?",
+        isPresented: $isConfirmingMarkAllRead,
+        titleVisibility: .visible
+      ) {
+        Button("Mark All as Read") {
+          model.markAllStoriesRead()
+        }
+        Button("Cancel", role: .cancel) {}
+      } message: {
+        Text(
+          "Existing stories will no longer appear in Unread. Newly downloaded stories will still appear."
+        )
       }
       .safeAreaInset(edge: .bottom) {
         StatusFooterView()
@@ -66,7 +95,33 @@ struct StoryListView: View {
     let threshold = max(total - 3, 0)
     guard index >= threshold else { return }
     guard model.hasMoreStories, !model.isLoadingOlderStories else { return }
+    storyListLogger.notice(
+      "pagination auto-triggered index=\(index, privacy: .public) total=\(total, privacy: .public)"
+    )
     Task { await model.loadOlderStories() }
+  }
+
+  private func logVisibleCardChange(from previousIDs: [String], to currentIDs: [String]) {
+    let previousIDSet = Set(previousIDs)
+    let currentIDSet = Set(currentIDs)
+    let sharedIDs = previousIDSet.intersection(currentIDSet)
+    let reordered =
+      previousIDs.filter(sharedIDs.contains) != currentIDs.filter(sharedIDs.contains)
+    let anchorPresent = topVisibleStoryID.map(currentIDSet.contains) ?? false
+    storyListLogger.notice(
+      "visible cards changed previous=\(previousIDs.count, privacy: .public) current=\(currentIDs.count, privacy: .public) inserted=\(currentIDSet.subtracting(previousIDSet).count, privacy: .public) removed=\(previousIDSet.subtracting(currentIDSet).count, privacy: .public) reordered=\(reordered, privacy: .public) anchorPresent=\(anchorPresent, privacy: .public) unreadOnly=\(model.showUnreadOnly, privacy: .public)"
+    )
+  }
+
+  private func syncStatusCategory(_ status: AppModel.SyncStatus) -> String {
+    switch status {
+    case .idle: return "idle"
+    case .syncing: return "syncing"
+    case .offline: return "offline"
+    case .failed: return "failed"
+    case .throttled: return "throttled"
+    case .partial: return "partial"
+    }
   }
 
   private func sourceTitle(for sourceId: String) -> String? {
@@ -82,6 +137,7 @@ struct StoryListView: View {
         .padding()
     } else if model.hasMoreStories {
       Button {
+        storyListLogger.notice("pagination manually triggered")
         Task { await model.loadOlderStories() }
       } label: {
         Label("Load more stories", systemImage: "arrow.down.circle")
@@ -179,6 +235,18 @@ struct StoryListView: View {
         Image(systemName: "gearshape")
       }
       .accessibilityLabel("Settings")
+
+      Menu {
+        Button {
+          isConfirmingMarkAllRead = true
+        } label: {
+          Label("Mark All as Read", systemImage: "checkmark.circle")
+        }
+        .disabled(model.unreadCount == 0)
+      } label: {
+        Image(systemName: "ellipsis.circle")
+      }
+      .accessibilityLabel("More actions")
     }
   }
 }

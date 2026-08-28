@@ -1,4 +1,9 @@
 import Foundation
+import OSLog
+
+private let redditSyncLogger = Logger(
+  subsystem: "com.github.namuan.personalreader", category: "reddit-sync"
+)
 
 public struct SyncPolicy: Equatable, Sendable {
   public let minimumInterval: TimeInterval
@@ -103,11 +108,14 @@ public actor StorySyncService: RedditSyncing {
     let nextEligible = nextEligibleDate(state: state, now: now, force: force)
 
     if isSyncing {
+      redditSyncLogger.notice("Reddit refresh skipped because a Reddit sync is active")
       return .skipped(nextAllowedAt: nextEligible ?? now)
     }
     if let nextEligible, nextEligible > now {
+      redditSyncLogger.notice("Reddit refresh skipped because it is not due")
       return .skipped(nextAllowedAt: nextEligible)
     }
+    redditSyncLogger.notice("Reddit refresh started force=\(force, privacy: .public)")
     isSyncing = true
     defer { isSyncing = false }
 
@@ -125,14 +133,25 @@ public actor StorySyncService: RedditSyncing {
         ),
         retentionCutoff: retentionCutoff(for: configuration, now: now)
       )
+      redditSyncLogger.notice(
+        "Reddit refresh completed parsed=\(stories.count, privacy: .public) stored=\(capped.count, privacy: .public) inserted=\(report.inserted, privacy: .public) updated=\(report.updated, privacy: .public) ignored=\(report.ignored, privacy: .public) deleted=\(report.deleted, privacy: .public)"
+      )
       return .synced(report)
     } catch let error as FeedClientError {
-      throw mappedError(error, state: state, now: now)
+      let syncError = mappedError(error, state: state, now: now)
+      redditSyncLogger.error(
+        "Reddit refresh failed category=\(self.syncErrorCategory(syncError), privacy: .public)")
+      throw syncError
     } catch let error as RSSParserError {
+      redditSyncLogger.error("Reddit refresh failed category=malformed-feed")
       throw SyncError.malformedFeed(errorDescription(of: error))
     } catch let error as URLError {
-      throw transportError(urlError: error)
+      let syncError = transportError(urlError: error)
+      redditSyncLogger.error(
+        "Reddit refresh failed category=\(self.syncErrorCategory(syncError), privacy: .public)")
+      throw syncError
     } catch is CancellationError {
+      redditSyncLogger.notice("Reddit refresh cancelled")
       throw SyncError.cancelled
     }
   }
@@ -146,12 +165,15 @@ public actor StorySyncService: RedditSyncing {
       try repository.loadSyncState(feedKey: feedKey)
       ?? SyncState(feedKey: feedKey)
     if state.hasReachedEnd {
+      redditSyncLogger.notice("Reddit pagination skipped because the end was reached")
       return .exhausted
     }
     if let retryNotBefore = state.retryNotBeforeDate, retryNotBefore > now {
+      redditSyncLogger.notice("Reddit pagination skipped because retry is deferred")
       return .skipped(nextAllowedAt: retryNotBefore)
     }
     if isSyncing {
+      redditSyncLogger.notice("Reddit pagination skipped because a Reddit sync is active")
       return .skipped(nextAllowedAt: now)
     }
     let cursor: String?
@@ -161,9 +183,11 @@ public actor StorySyncService: RedditSyncing {
       cursor = try repository.oldestStoryID(sourceId: FeedSourceRecord.builtInRedditID())
     }
     guard let cursor else {
+      redditSyncLogger.notice("Reddit pagination reached the end because no cursor is available")
       return .exhausted
     }
 
+    redditSyncLogger.notice("Reddit pagination started")
     isSyncing = true
     defer { isSyncing = false }
 
@@ -183,14 +207,25 @@ public actor StorySyncService: RedditSyncing {
         ),
         retentionCutoff: retentionCutoff(for: configuration, now: now)
       )
+      redditSyncLogger.notice(
+        "Reddit pagination completed parsed=\(stories.count, privacy: .public) stored=\(capped.count, privacy: .public) inserted=\(report.inserted, privacy: .public) updated=\(report.updated, privacy: .public) deleted=\(report.deleted, privacy: .public) exhausted=\(hasReachedEnd, privacy: .public)"
+      )
       return hasReachedEnd ? .exhausted : .loaded(report)
     } catch let error as FeedClientError {
-      throw mappedError(error, state: state, now: now)
+      let syncError = mappedError(error, state: state, now: now)
+      redditSyncLogger.error(
+        "Reddit pagination failed category=\(self.syncErrorCategory(syncError), privacy: .public)")
+      throw syncError
     } catch let error as RSSParserError {
+      redditSyncLogger.error("Reddit pagination failed category=malformed-feed")
       throw SyncError.malformedFeed(errorDescription(of: error))
     } catch let error as URLError {
-      throw transportError(urlError: error)
+      let syncError = transportError(urlError: error)
+      redditSyncLogger.error(
+        "Reddit pagination failed category=\(self.syncErrorCategory(syncError), privacy: .public)")
+      throw syncError
     } catch is CancellationError {
+      redditSyncLogger.notice("Reddit pagination cancelled")
       throw SyncError.cancelled
     }
   }
@@ -198,6 +233,19 @@ public actor StorySyncService: RedditSyncing {
   public func hasReachedEnd(configuration: FeedConfiguration) throws -> Bool {
     let feedKey = FeedSourceRecord.builtInRedditID()
     return try repository.loadSyncState(feedKey: feedKey)?.hasReachedEnd ?? false
+  }
+
+  private func syncErrorCategory(_ error: SyncError) -> String {
+    switch error {
+    case .rateLimited: return "rate-limited"
+    case .invalidCredentials: return "invalid-credentials"
+    case .offline: return "offline"
+    case .timedOut: return "timed-out"
+    case .serverFailure: return "server-failure"
+    case .malformedFeed: return "malformed-feed"
+    case .networkFailure: return "network-failure"
+    case .cancelled: return "cancelled"
+    }
   }
 
   private func retentionCutoff(for configuration: FeedConfiguration, now: Date) -> Int64 {

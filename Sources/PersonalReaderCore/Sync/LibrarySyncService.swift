@@ -1,4 +1,9 @@
 import Foundation
+import OSLog
+
+private let librarySyncLogger = Logger(
+  subsystem: "com.github.namuan.personalreader", category: "library-sync"
+)
 
 public struct SourceSyncResult: Equatable, Sendable {
   public let sourceId: String
@@ -58,12 +63,16 @@ public actor LibrarySyncService {
     now: Date = Date()
   ) async -> LibraryRefreshReport {
     if isRefreshing {
+      librarySyncLogger.notice("library refresh skipped because another refresh is active")
       return LibraryRefreshReport(reddit: nil, sources: [])
     }
     isRefreshing = true
     defer { isRefreshing = false }
 
     let sources = ((try? sourceStore.fetchEnabled()) ?? []).filter { $0.kind == .rss }
+    librarySyncLogger.notice(
+      "library refresh started force=\(force, privacy: .public) reddit=\(reddit, privacy: .public) rssSources=\(sources.count, privacy: .public)"
+    )
     let rssTasks = sources.map { source in
       Task { () -> SourceSyncResult in
         do {
@@ -98,7 +107,17 @@ public actor LibrarySyncService {
     for task in rssTasks {
       sourceResults.append(await task.value)
     }
-    return LibraryRefreshReport(reddit: redditResult, sources: sourceResults)
+    let report = LibraryRefreshReport(reddit: redditResult, sources: sourceResults)
+    let redditSucceeded: Bool
+    if case .success = redditResult {
+      redditSucceeded = true
+    } else {
+      redditSucceeded = false
+    }
+    librarySyncLogger.notice(
+      "library refresh completed attempted=\(report.totalAttempted, privacy: .public) succeeded=\(report.succeededCount, privacy: .public) redditSucceeded=\(redditSucceeded, privacy: .public) rssFailed=\(sourceResults.count - sourceResults.filter(\.isSuccess).count, privacy: .public)"
+    )
+    return report
   }
 
   public func refreshSource(

@@ -1,4 +1,9 @@
 import Foundation
+import OSLog
+
+private let rssSyncLogger = Logger(
+  subsystem: "com.github.namuan.personalreader", category: "rss-sync"
+)
 
 public struct RSSSyncOutcome: Equatable, Sendable {
   public let report: SyncReport
@@ -52,15 +57,24 @@ public actor RSSFeedSyncService: RSSSyncing {
     if let nextEligible = nextEligibleDate(
       state: state, now: now, force: force, minimumInterval: minimumInterval
     ), nextEligible > now {
+      rssSyncLogger.debug(
+        "RSS refresh skipped source=\(source.id, privacy: .public) reason=not-due")
       throw RSSSyncError.notDue(nextEligibleAt: nextEligible)
     }
     if isSyncing[source.id] == true {
+      rssSyncLogger.notice(
+        "RSS refresh skipped source=\(source.id, privacy: .public) reason=already-syncing")
       throw RSSSyncError.alreadySyncing
     }
+    rssSyncLogger.notice(
+      "RSS refresh started source=\(source.id, privacy: .public) force=\(force, privacy: .public)"
+    )
     isSyncing[source.id] = true
     defer { isSyncing[source.id] = false }
 
     guard let url = URL(string: source.url) else {
+      rssSyncLogger.error(
+        "RSS refresh failed source=\(source.id, privacy: .public) category=malformed-feed")
       throw RSSSyncError.malformedFeed("Invalid feed URL")
     }
     do {
@@ -72,6 +86,8 @@ public actor RSSFeedSyncService: RSSSyncing {
       if response.isNotModified {
         let timestamp = Int64(now.timeIntervalSince1970)
         try repository.recordSourceSuccess(sourceId: source.id, at: timestamp)
+        rssSyncLogger.notice(
+          "RSS refresh completed source=\(source.id, privacy: .public) notModified=true")
         return RSSSyncOutcome(
           report: SyncReport(inserted: 0, updated: 0, ignored: 0, deleted: 0),
           etag: response.etag ?? state.etag,
@@ -94,8 +110,12 @@ public actor RSSFeedSyncService: RSSSyncing {
         ),
         retentionCutoff: .min
       )
-      _ = try repository.capStoriesPerSource(sourceId: source.id, maximum: maximumStories)
+      let removedCount = try repository.capStoriesPerSource(
+        sourceId: source.id, maximum: maximumStories)
       try repository.recordSourceSuccess(sourceId: source.id, at: Int64(now.timeIntervalSince1970))
+      rssSyncLogger.notice(
+        "RSS refresh completed source=\(source.id, privacy: .public) parsed=\(stories.count, privacy: .public) stored=\(capped.count, privacy: .public) inserted=\(report.inserted, privacy: .public) updated=\(report.updated, privacy: .public) ignored=\(report.ignored, privacy: .public) retainedRemoved=\(removedCount, privacy: .public)"
+      )
       return RSSSyncOutcome(
         report: report,
         etag: response.etag,
@@ -104,6 +124,9 @@ public actor RSSFeedSyncService: RSSSyncing {
       )
     } catch let error as SyndicationClientError {
       let mapped = mapError(error, source: source, state: state, now: now)
+      rssSyncLogger.error(
+        "RSS refresh failed source=\(source.id, privacy: .public) category=\(self.rssErrorCategory(mapped), privacy: .public)"
+      )
       try repository.recordSourceError(
         sourceId: source.id,
         error: describe(error),
@@ -111,6 +134,8 @@ public actor RSSFeedSyncService: RSSSyncing {
       )
       throw mapped
     } catch let error as RSSParserError {
+      rssSyncLogger.error(
+        "RSS refresh failed source=\(source.id, privacy: .public) category=malformed-feed")
       try repository.recordSourceError(
         sourceId: source.id,
         error: "Feed could not be parsed",
@@ -118,17 +143,27 @@ public actor RSSFeedSyncService: RSSSyncing {
       )
       throw RSSSyncError.malformedFeed(errorDescription(of: error))
     } catch let error as URLError {
+      let mapped = mapTransportError(error)
+      rssSyncLogger.error(
+        "RSS refresh failed source=\(source.id, privacy: .public) category=\(self.rssErrorCategory(mapped), privacy: .public)"
+      )
       try repository.recordSourceError(
         sourceId: source.id,
         error: "Network error",
         at: Int64(now.timeIntervalSince1970)
       )
-      throw mapTransportError(error)
+      throw mapped
     } catch is CancellationError {
+      rssSyncLogger.notice("RSS refresh cancelled source=\(source.id, privacy: .public)")
       throw RSSSyncError.cancelled
     } catch let error as RSSSyncError {
+      rssSyncLogger.error(
+        "RSS refresh failed source=\(source.id, privacy: .public) category=\(self.rssErrorCategory(error), privacy: .public)"
+      )
       throw error
     } catch {
+      rssSyncLogger.error(
+        "RSS refresh failed source=\(source.id, privacy: .public) category=unknown")
       try repository.recordSourceError(
         sourceId: source.id,
         error: "Unknown error",
@@ -206,6 +241,22 @@ public actor RSSFeedSyncService: RSSSyncing {
       candidates.append(lastSuccess.addingTimeInterval(minimumInterval))
     }
     return candidates.max()
+  }
+
+  private func rssErrorCategory(_ error: RSSSyncError) -> String {
+    switch error {
+    case .rateLimited: return "rate-limited"
+    case .invalidCredentials: return "invalid-credentials"
+    case .offline: return "offline"
+    case .timedOut: return "timed-out"
+    case .serverFailure: return "server-failure"
+    case .malformedFeed: return "malformed-feed"
+    case .networkFailure: return "network-failure"
+    case .cancelled: return "cancelled"
+    case .insecureScheme: return "insecure-scheme"
+    case .alreadySyncing: return "already-syncing"
+    case .notDue: return "not-due"
+    }
   }
 
   private func mapError(

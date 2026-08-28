@@ -2,7 +2,6 @@ import PersonalReaderCore
 import SwiftUI
 
 struct ReaderView: View {
-  @Environment(AppModel.self) private var model: AppModel
   @Environment(\.openURL) private var openURL
 
   let story: Story
@@ -44,9 +43,6 @@ struct ReaderView: View {
       .padding()
     }
     .navigationBarTitleDisplayMode(.inline)
-    .task(id: story.id) {
-      model.markRead(story)
-    }
   }
 
   private var metaLine: String {
