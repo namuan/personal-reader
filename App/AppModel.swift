@@ -575,6 +575,47 @@ final class AppModel {
     }
   }
 
+  enum FeedImportOutcome: Equatable {
+    case imported(added: Int, skipped: Int)
+    case failed(String)
+  }
+
+  func makeFeedExportData() throws -> Data {
+    try JSONEncoder().encode(FeedTransferPackage.exporting(records: feedSources))
+  }
+
+  func planFeedImport(data: Data) throws -> FeedImportPlan {
+    let items = try FeedTransferPackage.decode(from: data)
+    let existing = (try? environment.sourceStore.fetchAll()) ?? []
+    return FeedImportPlanner.plan(
+      items: items,
+      existingURLs: Set(existing.map(\.url))
+    )
+  }
+
+  func commitFeedImport(plan: FeedImportPlan) -> FeedImportOutcome {
+    guard !plan.accepted.isEmpty else {
+      return .imported(added: 0, skipped: plan.rejectedCount)
+    }
+    var nextOrder = (try? environment.sourceStore.nextSortOrder()) ?? 0
+    var added = 0
+    for item in plan.accepted {
+      do {
+        try environment.sourceStore.save(item.makeRecord(sortOrder: nextOrder))
+        added += 1
+        nextOrder += 1
+      } catch {
+        continue
+      }
+    }
+    if added > 0 {
+      loadFeedSources()
+      restartObservation()
+      Task { await refresh(force: false, isBackground: false) }
+    }
+    return .imported(added: added, skipped: plan.rejectedCount + (plan.accepted.count - added))
+  }
+
   func refreshFeed(id: String) async {
     let result = await environment.librarySyncService.refreshSource(
       id: id,
@@ -813,6 +854,20 @@ final class AppModel {
     case .transportFailure:
       return "Network error."
     }
+  }
+
+  nonisolated static func transferMessage(for error: Error) -> String {
+    if let transferError = error as? FeedTransferError {
+      switch transferError {
+      case .unreadable:
+        return "That file is not a valid feed export."
+      case .invalidFormat:
+        return "That file is not a Personal Reader feed export."
+      case .unsupportedVersion:
+        return "This export was created by a newer version of the app."
+      }
+    }
+    return "Could not read the selected file."
   }
 
   nonisolated static func validationMessage(for error: Error) -> String {
