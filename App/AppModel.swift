@@ -497,7 +497,12 @@ final class AppModel {
   }
 
   func planFeedImport(data: Data) throws -> FeedImportPlan {
-    let items = try FeedTransferPackage.decode(from: data)
+    let items =
+      if OPMLImport.looksLikeOPML(data) {
+        try OPMLImport.parse(data: data)
+      } else {
+        try FeedTransferPackage.decode(from: data)
+      }
     let existing = (try? environment.sourceStore.fetchAll()) ?? []
     return FeedImportPlanner.plan(
       items: items,
@@ -777,6 +782,14 @@ final class AppModel {
         return "That file is not a Personal Reader feed export."
       case .unsupportedVersion:
         return "This export was created by a newer version of the app."
+      }
+    }
+    if let opmlError = error as? OPMLImportError {
+      switch opmlError {
+      case .unreadable:
+        return "That file could not be read as an OPML file."
+      case .invalidFormat:
+        return "That file is not an OPML feed list."
       }
     }
     return "Could not read the selected file."

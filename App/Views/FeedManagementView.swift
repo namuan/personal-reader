@@ -131,7 +131,7 @@ struct FeedManagementView: View {
       }
       .fileImporter(
         isPresented: $isImporting,
-        allowedContentTypes: [.json],
+        allowedContentTypes: Self.importContentTypes,
         allowsMultipleSelection: false
       ) { result in
         handleImportSelection(result)
@@ -163,6 +163,10 @@ struct FeedManagementView: View {
         FeedEditorView(mode: .add)
       }
     }
+  }
+
+  private static var importContentTypes: [UTType] {
+    [.json, .xml, UTType(filenameExtension: "opml")].compactMap { $0 }
   }
 
   private var exportableFeeds: [FeedSourceRecord] {
