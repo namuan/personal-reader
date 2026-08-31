@@ -251,7 +251,8 @@ struct AttributedTextView: UIViewRepresentable {
     func textView(
       _ textView: UITextView,
       shouldInteractWith url: URL,
-      in characterRange: NSRange
+      in characterRange: NSRange,
+      interaction: UITextItemInteraction
     ) -> Bool {
       switch url.scheme?.lowercased() {
       case "http", "https", "mailto":
