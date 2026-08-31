@@ -73,6 +73,7 @@ struct StoryListView: View {
         }
 
         olderStoriesControl
+        markAllReadControl
       }
       .padding(.horizontal)
       .padding(.vertical, 12)
@@ -143,6 +144,22 @@ struct StoryListView: View {
         .font(.footnote)
         .foregroundStyle(.secondary)
         .padding()
+    }
+  }
+
+  @ViewBuilder
+  private var markAllReadControl: some View {
+    if model.showUnreadOnly && model.unreadCount > 0 {
+      Button {
+        isConfirmingMarkAllRead = true
+      } label: {
+        Label("Mark All as Read", systemImage: "checkmark.circle")
+          .frame(maxWidth: .infinity)
+      }
+      .buttonStyle(.borderedProminent)
+      .controlSize(.large)
+      .padding(.vertical, 12)
+      .accessibilityHint("Marks all currently loaded unread stories as read")
     }
   }
 
@@ -227,18 +244,6 @@ struct StoryListView: View {
         Image(systemName: "gearshape")
       }
       .accessibilityLabel("Settings")
-
-      Menu {
-        Button {
-          isConfirmingMarkAllRead = true
-        } label: {
-          Label("Mark All as Read", systemImage: "checkmark.circle")
-        }
-        .disabled(model.unreadCount == 0)
-      } label: {
-        Image(systemName: "ellipsis.circle")
-      }
-      .accessibilityLabel("More actions")
     }
   }
 }
