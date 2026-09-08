@@ -51,6 +51,7 @@ final class AppModel {
   var showUnreadOnly = true {
     didSet {
       listLogger.info("unread filter changed enabled=\(self.showUnreadOnly, privacy: .public)")
+      rebuildFilteredStories()
       restartObservation()
     }
   }
@@ -58,19 +59,15 @@ final class AppModel {
   var searchQuery = "" {
     didSet {
       guard oldValue != searchQuery else { return }
-      listLogger.info("story search query changed active=\(self.hasActiveSearch, privacy: .public)")
+      scheduleSearch()
     }
   }
 
   var hasActiveSearch: Bool {
-    !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    !appliedSearchQuery.isEmpty
   }
 
-  var filteredStories: [Story] {
-    let unreadFiltered = showUnreadOnly ? stories.filter { !$0.isRead } : stories
-    guard hasActiveSearch else { return unreadFiltered }
-    return unreadFiltered.filter(matchesSearch)
-  }
+  private(set) var filteredStories: [Story] = []
 
   var savedPreferences: UserPreferences {
     environment.savedPreferences
@@ -111,6 +108,11 @@ final class AppModel {
   private let environment: AppEnvironment
   var environmentIfAvailable: AppEnvironment { environment }
   private var observationCancellable: AnyDatabaseCancellable?
+  private var searchDebounceTask: Task<Void, Never>?
+  private var appliedSearchQuery = "" {
+    didSet { rebuildFilteredStories() }
+  }
+  private var searchableTextByStoryID: [String: String] = [:]
 
   init(environment: AppEnvironment) {
     self.environment = environment
@@ -608,7 +610,11 @@ final class AppModel {
     hasMoreStories = true
     syncStatus = .idle
     showUnreadOnly = true
+    searchDebounceTask?.cancel()
+    searchDebounceTask = nil
     searchQuery = ""
+    appliedSearchQuery = ""
+    searchableTextByStoryID = [:]
     scope = .all
     loadFeedSources()
     phase = .setup
@@ -844,6 +850,10 @@ final class AppModel {
       return
     }
     stories = stories.filter { $0.sourceId != FeedSourceRecord.builtInRedditID() }
+    searchableTextByStoryID = Dictionary(
+      uniqueKeysWithValues: stories.map { ($0.id, Self.searchableText(for: $0)) }
+    )
+    rebuildFilteredStories()
     unreadCount = stories.reduce(0) { $0 + ($1.isRead ? 0 : 1) }
     lastSyncDate = nil
     isLoadingOlderStories = false
@@ -866,6 +876,7 @@ final class AppModel {
 
   private func loadFeedSources() {
     feedSources = (try? environment.sourceStore.fetchAll()) ?? []
+    rebuildFilteredStories()
   }
 
   private func loadSyncState() {
@@ -891,21 +902,42 @@ final class AppModel {
     }
   }
 
+  private func scheduleSearch() {
+    searchDebounceTask?.cancel()
+    let searchInput = searchQuery
+    let query = searchInput.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !query.isEmpty else {
+      appliedSearchQuery = ""
+      return
+    }
+    searchDebounceTask = Task { @MainActor [weak self, searchInput, query] in
+      try? await Task.sleep(for: .milliseconds(250))
+      guard !Task.isCancelled, let self, self.searchQuery == searchInput else { return }
+      self.appliedSearchQuery = query
+      listLogger.info("story search query applied active=true")
+    }
+  }
+
+  private func rebuildFilteredStories() {
+    let searchFiltered = hasActiveSearch ? stories.filter(matchesSearch) : stories
+    filteredStories = showUnreadOnly ? searchFiltered.filter { !$0.isRead } : searchFiltered
+  }
+
   private func matchesSearch(_ story: Story) -> Bool {
-    let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
     let sourceTitle =
       feedSources.first(where: { $0.id == story.sourceId })?.title
       ?? (story.sourceId == FeedSourceRecord.builtInRedditID() ? "Reddit" : "")
-    return [
-      story.title,
-      visibleText(from: story.contentBody),
-      story.author,
-      story.subreddit,
-      sourceTitle,
-    ].contains { $0.localizedStandardContains(query) }
+    let storyText = searchableTextByStoryID[story.id] ?? Self.searchableText(for: story)
+    return storyText.localizedStandardContains(appliedSearchQuery)
+      || sourceTitle.localizedStandardContains(appliedSearchQuery)
   }
 
-  private func visibleText(from html: String) -> String {
+  private static func searchableText(for story: Story) -> String {
+    [story.title, visibleText(from: story.contentBody), story.author, story.subreddit]
+      .joined(separator: "\n")
+  }
+
+  private static func visibleText(from html: String) -> String {
     html
       .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
       .replacingOccurrences(of: "&nbsp;", with: " ")
@@ -959,6 +991,10 @@ final class AppModel {
       }
     }
     stories = scoped
+    searchableTextByStoryID = Dictionary(
+      uniqueKeysWithValues: scoped.map { ($0.id, Self.searchableText(for: $0)) }
+    )
+    rebuildFilteredStories()
     unreadCount = scoped.reduce(0) { $0 + ($1.isRead ? 0 : 1) }
     listLogger.notice(
       "list snapshot source=\(source, privacy: .public) incoming=\(updatedStories.count, privacy: .public) scoped=\(scoped.count, privacy: .public) inserted=\(updatedIDSet.subtracting(previousIDs).count, privacy: .public) removed=\(previousIDs.subtracting(updatedIDSet).count, privacy: .public) changed=\(changedCount, privacy: .public) unread=\(self.unreadCount, privacy: .public)"

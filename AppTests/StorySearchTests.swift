@@ -25,18 +25,23 @@ final class StorySearchTests: XCTestCase {
     await waitForObservation()
 
     model.searchQuery = "mountain"
+    await waitForSearchDebounce()
     XCTAssertEqual(model.filteredStories.map(\.id), ["title"])
 
     model.searchQuery = "coffee"
+    await waitForSearchDebounce()
     XCTAssertEqual(model.filteredStories.map(\.id), ["content"])
 
     model.searchQuery = "ada"
+    await waitForSearchDebounce()
     XCTAssertEqual(model.filteredStories.map(\.id), ["author"])
 
     model.searchQuery = "swiftui"
+    await waitForSearchDebounce()
     XCTAssertEqual(model.filteredStories.map(\.id), ["subreddit"])
 
     model.searchQuery = "weekly reading"
+    await waitForSearchDebounce()
     XCTAssertEqual(model.filteredStories.map(\.id), ["source"])
   }
 
@@ -45,8 +50,21 @@ final class StorySearchTests: XCTestCase {
     await waitForObservation()
 
     model.searchQuery = "CAFE"
+    await waitForSearchDebounce()
 
     XCTAssertEqual(model.filteredStories.map(\.id), ["cafe"])
+  }
+
+  func testSearchAppliesAfterDebouncingInput() async throws {
+    let model = makeModel(stories: [makeStory(id: "match", title: "Needle")])
+    await waitForObservation()
+
+    model.searchQuery = "needle"
+
+    XCTAssertFalse(model.hasActiveSearch)
+    await waitForSearchDebounce()
+    XCTAssertTrue(model.hasActiveSearch)
+    XCTAssertEqual(model.filteredStories.map(\.id), ["match"])
   }
 
   func testWhitespaceOnlySearchReturnsTheNormalList() async throws {
@@ -81,6 +99,7 @@ final class StorySearchTests: XCTestCase {
     await waitForObservation()
 
     model.searchQuery = "needle"
+    await waitForSearchDebounce()
 
     XCTAssertEqual(model.filteredStories.map(\.id), ["unread"])
   }
@@ -130,6 +149,11 @@ final class StorySearchTests: XCTestCase {
       publishedAt: 100,
       sourceId: sourceID
     )
+  }
+
+  private func waitForSearchDebounce() async {
+    try? await Task.sleep(for: .milliseconds(300))
+    await Task.yield()
   }
 
   private func waitForObservation() async {
