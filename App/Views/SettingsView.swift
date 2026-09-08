@@ -46,12 +46,12 @@ struct SettingsView: View {
           connectionResult = nil
           settingsError = nil
           settingsMessage =
-            "Downloaded stories and sync history cleared. Pull down to download again."
+            "Downloaded stories and sync history cleared. Local bookmarks were kept. Pull down to download again."
         }
         Button("Cancel", role: .cancel) {}
       } message: {
         Text(
-          "This removes downloaded stories and sync history from this device. Your Reddit username, feed selection, and Keychain token stay saved."
+          "This removes downloaded stories and sync history from this device, but keeps local bookmarks. Your Reddit username, feed selection, and Keychain token stay saved."
         )
       }
       .confirmationDialog(
@@ -66,7 +66,7 @@ struct SettingsView: View {
         Button("Cancel", role: .cancel) {}
       } message: {
         Text(
-          "This removes the RSS token, your preferences, every downloaded story, and any RSS feeds you've added. You will return to setup."
+          "This removes the RSS token, preferences, downloaded stories, local bookmarks, and RSS feeds. You will return to setup."
         )
       }
       .sheet(isPresented: $isManagingFeeds) {
@@ -173,6 +173,9 @@ struct SettingsView: View {
       LabeledContent("Unread") {
         Text("\(model.unreadCount)")
       }
+      LabeledContent("Local bookmarks") {
+        Text("\(model.bookmarks.count)")
+      }
       LabeledContent("Last sync") {
         Text(model.lastSyncDate.map { $0.formatted(.relative(presentation: .named)) } ?? "Never")
       }
@@ -188,7 +191,7 @@ struct SettingsView: View {
       } label: {
         Label("Clear downloaded data", systemImage: "externaldrive.badge.minus")
       }
-      .accessibilityHint("Keeps your feed settings and Keychain token")
+      .accessibilityHint("Keeps your feed settings, Keychain token, and local bookmarks")
     }
   }
 

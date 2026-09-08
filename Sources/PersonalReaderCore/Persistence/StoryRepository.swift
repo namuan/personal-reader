@@ -154,21 +154,83 @@ public struct StoryRepository: Sendable {
     var updated = 0
     var ignored = 0
     for incoming in stories {
-      guard let existing = try Story.fetchOne(database, key: incoming.id) else {
+      if let existing = try Story.fetchOne(database, key: incoming.id) {
+        if existing.contentEquals(incoming) {
+          ignored += 1
+        } else {
+          var changed = incoming
+          changed.isRead = existing.isRead
+          try changed.update(database)
+          updated += 1
+        }
+      } else {
         try incoming.insert(database)
         inserted += 1
-        continue
       }
-      if existing.contentEquals(incoming) {
-        ignored += 1
-      } else {
-        var changed = incoming
-        changed.isRead = existing.isRead
-        try changed.update(database)
-        updated += 1
-      }
+      try updateBookmarkSnapshot(for: incoming, in: database)
     }
     return StorySaveReport(inserted: inserted, updated: updated, ignored: ignored)
+  }
+
+  private func updateBookmarkSnapshot(for story: Story, in database: Database) throws {
+    guard var bookmark = try BookmarkedStory.fetchOne(database, key: story.id) else { return }
+    bookmark.title = story.title
+    bookmark.contentBody = story.contentBody
+    bookmark.author = story.author
+    bookmark.subreddit = story.subreddit
+    bookmark.publishedAt = story.publishedAt
+    bookmark.link = story.link
+    bookmark.sourceId = story.sourceId
+    try bookmark.update(database)
+  }
+
+  public func bookmark(_ story: Story, at timestamp: Int64 = Int64(Date().timeIntervalSince1970))
+    throws -> Bool
+  {
+    try databaseQueue.write { database in
+      guard try BookmarkedStory.fetchOne(database, key: story.id) == nil else { return false }
+      let sortOrder =
+        try BookmarkedStory.select(max(BookmarkedStory.Columns.sortOrder))
+        .fetchOne(database) ?? -1
+      try BookmarkedStory(story: story, bookmarkedAt: timestamp, sortOrder: sortOrder + 1).insert(
+        database)
+      return true
+    }
+  }
+
+  @discardableResult
+  public func removeBookmark(id: String) throws -> Bool {
+    try databaseQueue.write { database in
+      try BookmarkedStory.deleteOne(database, key: id)
+    }
+  }
+
+  public func fetchBookmarks() throws -> [BookmarkedStory] {
+    try databaseQueue.read { database in
+      try BookmarkedStory
+        .order(BookmarkedStory.Columns.sortOrder.asc, BookmarkedStory.Columns.bookmarkedAt.asc)
+        .fetchAll(database)
+    }
+  }
+
+  public func isBookmarked(id: String) throws -> Bool {
+    try databaseQueue.read { database in
+      try BookmarkedStory.exists(database, key: id)
+    }
+  }
+
+  public func reorderBookmarks(ids: [String]) throws {
+    try databaseQueue.write { database in
+      let bookmarks = try BookmarkedStory.fetchAll(database)
+      let existingIDs = Set(bookmarks.map(\.id))
+      guard Set(ids) == existingIDs, ids.count == existingIDs.count else { return }
+      for (index, id) in ids.enumerated() {
+        try database.execute(
+          sql: "UPDATE bookmarked_stories SET sort_order = ? WHERE id = ?",
+          arguments: [index, id]
+        )
+      }
+    }
   }
 
   public func fetchStories(
@@ -254,7 +316,12 @@ public struct StoryRepository: Sendable {
         sql: "UPDATE stories SET is_read = ? WHERE id = ?",
         arguments: [isRead, id]
       )
-      return database.changesCount > 0
+      let changed = database.changesCount > 0
+      try database.execute(
+        sql: "UPDATE bookmarked_stories SET is_read = ? WHERE id = ?",
+        arguments: [isRead, id]
+      )
+      return changed
     }
   }
 
@@ -262,10 +329,17 @@ public struct StoryRepository: Sendable {
   public func markRead(ids: [String], isRead: Bool = true) throws -> Int {
     guard !ids.isEmpty else { return 0 }
     return try databaseQueue.write { database in
-      try Story
+      let changed =
+        try Story
         .filter(ids.contains(Story.Columns.id))
         .filter(Story.Columns.isRead == !isRead)
         .updateAll(database, Story.Columns.isRead.set(to: isRead))
+      _ =
+        try BookmarkedStory
+        .filter(ids.contains(BookmarkedStory.Columns.id))
+        .filter(BookmarkedStory.Columns.isRead == !isRead)
+        .updateAll(database, BookmarkedStory.Columns.isRead.set(to: isRead))
+      return changed
     }
   }
 
@@ -318,6 +392,7 @@ public struct StoryRepository: Sendable {
   public func deleteAllData() throws {
     try databaseQueue.write { database in
       _ = try Story.deleteAll(database)
+      _ = try BookmarkedStory.deleteAll(database)
       _ = try SyncState.deleteAll(database)
       _ = try FeedSourceRecord.deleteAll(database)
     }
@@ -328,6 +403,7 @@ public struct StoryRepository: Sendable {
       _ = try Story.deleteAll(database)
       _ = try SyncState.deleteAll(database)
       if !preservingFeedSources {
+        _ = try BookmarkedStory.deleteAll(database)
         _ = try FeedSourceRecord.deleteAll(database)
       }
     }
@@ -358,6 +434,19 @@ public struct StoryRepository: Sendable {
         request = request.filter(Story.Columns.sourceId == sourceId)
       }
       return try request.fetchAll(database)
+    }
+    return observation.start(in: databaseQueue, onError: onError, onChange: onChange)
+  }
+
+  @MainActor
+  public func observeBookmarks(
+    onError: @escaping @Sendable (Error) -> Void,
+    onChange: @escaping @Sendable ([BookmarkedStory]) -> Void
+  ) -> AnyDatabaseCancellable {
+    let observation = ValueObservation.tracking { database in
+      try BookmarkedStory
+        .order(BookmarkedStory.Columns.sortOrder.asc, BookmarkedStory.Columns.bookmarkedAt.asc)
+        .fetchAll(database)
     }
     return observation.start(in: databaseQueue, onError: onError, onChange: onChange)
   }
@@ -535,6 +624,24 @@ public struct StoryRepository: Sendable {
         refreshInterval: .thirtyMinutes,
         sortOrder: -1
       ).save(database)
+    }
+    migrator.registerMigration("addBookmarkedStories") { database in
+      try database.create(table: BookmarkedStory.databaseTableName) { table in
+        table.column("id", .text).primaryKey()
+        table.column("title", .text).notNull()
+        table.column("content_body", .text).notNull()
+        table.column("author", .text).notNull()
+        table.column("subreddit", .text).notNull()
+        table.column("published_at", .integer).notNull()
+        table.column("link", .text).notNull().defaults(to: "")
+        table.column("is_read", .boolean).notNull().defaults(to: false)
+        table.column("source_id", .text).notNull()
+        table.column("bookmarked_at", .integer).notNull()
+        table.column("sort_order", .integer).notNull()
+      }
+      try database.create(
+        indexOn: BookmarkedStory.databaseTableName, columns: ["sort_order"]
+      )
     }
     return migrator
   }

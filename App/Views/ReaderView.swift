@@ -45,9 +45,25 @@ struct ReaderView: View {
       .padding()
     }
     .navigationBarTitleDisplayMode(.inline)
+    .toolbar {
+      Button {
+        model.toggleBookmark(story: story)
+      } label: {
+        Label(bookmarkLabel, systemImage: bookmarkSystemImage)
+      }
+      .accessibilityLabel("\(bookmarkLabel) \(story.title)")
+    }
     .onDisappear {
       model.markStoryRead(id: story.id)
     }
+  }
+
+  private var bookmarkLabel: String {
+    model.isBookmarked(id: story.id) ? "Remove bookmark" : "Bookmark"
+  }
+
+  private var bookmarkSystemImage: String {
+    model.isBookmarked(id: story.id) ? "bookmark.fill" : "bookmark"
   }
 
   private func openOriginalLabel(for url: URL) -> String {

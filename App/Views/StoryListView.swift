@@ -11,6 +11,7 @@ struct StoryListView: View {
 
   @State private var isSettingsPresented = false
   @State private var isConfirmingMarkAllRead = false
+  @State private var isBookmarksPresented = false
 
   var body: some View {
     NavigationStack {
@@ -42,6 +43,9 @@ struct StoryListView: View {
       }
       .sheet(isPresented: $isSettingsPresented) {
         SettingsView()
+      }
+      .navigationDestination(isPresented: $isBookmarksPresented) {
+        LocalBookmarksView()
       }
       .confirmationDialog(
         "Mark all stories as read?",
@@ -225,6 +229,15 @@ struct StoryListView: View {
 
     ToolbarItemGroup(placement: .topBarTrailing) {
       Menu {
+        Section("Local library") {
+          Button {
+            isBookmarksPresented = true
+          } label: {
+            Label("Local Bookmarks", systemImage: "bookmark")
+          }
+          .accessibilityHint("Opens your locally saved stories")
+        }
+
         Button {
           model.selectSubscribedFeed()
         } label: {
@@ -282,6 +295,7 @@ struct StoryCardView: View {
   let sourceTitle: String?
 
   @Environment(\.openURL) private var openURL
+  @Environment(AppModel.self) private var model
 
   private let preview: String
 
@@ -318,18 +332,30 @@ struct StoryCardView: View {
       .accessibilityLabel(cardAccessibilityLabel)
       .accessibilityHint("Opens the story")
 
-      if let url = browserURL {
-        Divider()
+      Divider()
+
+      HStack(spacing: 16) {
+        if let url = browserURL {
+          Button {
+            openURL(url)
+          } label: {
+            Label(openOriginalLabel, systemImage: "safari")
+              .font(.footnote.weight(.semibold))
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("Open \(story.title) on \(hostLabel)")
+        }
 
         Button {
-          openURL(url)
+          model.toggleBookmark(story: story)
         } label: {
-          Label(openOriginalLabel, systemImage: "safari")
+          Label(bookmarkLabel, systemImage: bookmarkSystemImage)
             .font(.footnote.weight(.semibold))
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Open \(story.title) on \(hostLabel)")
+        .accessibilityLabel("\(bookmarkLabel) \(story.title)")
+
+        Spacer(minLength: 0)
       }
     }
     .padding(16)
@@ -393,6 +419,14 @@ struct StoryCardView: View {
   private var openOriginalLabel: String {
     if sourceTitle == nil { return "Open on Reddit" }
     return "Open on \(hostLabel)"
+  }
+
+  private var bookmarkLabel: String {
+    model.isBookmarked(id: story.id) ? "Remove bookmark" : "Bookmark"
+  }
+
+  private var bookmarkSystemImage: String {
+    model.isBookmarked(id: story.id) ? "bookmark.fill" : "bookmark"
   }
 
   private var cardAccessibilityLabel: String {

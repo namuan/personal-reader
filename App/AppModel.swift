@@ -31,6 +31,8 @@ final class AppModel {
 
   private(set) var phase: Phase = .loading
   private(set) var stories: [Story] = []
+  private(set) var bookmarks: [BookmarkedStory] = []
+  private(set) var bookmarkedStoryIDs: Set<String> = []
   private(set) var unreadCount = 0
   private(set) var lastSyncDate: Date?
   private(set) var syncStatus: SyncStatus = .idle
@@ -108,6 +110,7 @@ final class AppModel {
   private let environment: AppEnvironment
   var environmentIfAvailable: AppEnvironment { environment }
   private var observationCancellable: AnyDatabaseCancellable?
+  private var bookmarkObservationCancellable: AnyDatabaseCancellable?
   private var searchDebounceTask: Task<Void, Never>?
   private var appliedSearchQuery = "" {
     didSet { rebuildFilteredStories() }
@@ -182,6 +185,30 @@ final class AppModel {
       }
     } catch {
       listLogger.error("mark read failed id=\(id, privacy: .public)")
+    }
+  }
+
+  func isBookmarked(id: String) -> Bool {
+    bookmarkedStoryIDs.contains(id)
+  }
+
+  func toggleBookmark(story: Story) {
+    do {
+      if isBookmarked(id: story.id) {
+        _ = try environment.repository.removeBookmark(id: story.id)
+      } else {
+        _ = try environment.repository.bookmark(story)
+      }
+    } catch {
+      syncStatus = .failed("Could not update the bookmark.")
+    }
+  }
+
+  func reorderBookmarks(ids: [String]) {
+    do {
+      try environment.repository.reorderBookmarks(ids: ids)
+    } catch {
+      syncStatus = .failed("Could not reorder bookmarks.")
     }
   }
 
@@ -603,7 +630,11 @@ final class AppModel {
     }
     observationCancellable?.cancel()
     observationCancellable = nil
+    bookmarkObservationCancellable?.cancel()
+    bookmarkObservationCancellable = nil
     stories = []
+    bookmarks = []
+    bookmarkedStoryIDs = []
     unreadCount = 0
     lastSyncDate = nil
     isLoadingOlderStories = false
@@ -970,11 +1001,33 @@ final class AppModel {
       )
       apply(stories: initial, source: "initial-fetch")
     } catch {}
+    startBookmarkObservation()
+  }
+
+  private func startBookmarkObservation() {
+    bookmarkObservationCancellable?.cancel()
+    let repository = environment.repository
+    bookmarkObservationCancellable = repository.observeBookmarks(
+      onError: { _ in },
+      onChange: { [weak self] updatedBookmarks in
+        Task { @MainActor in
+          self?.apply(bookmarks: updatedBookmarks)
+        }
+      }
+    )
+    do {
+      apply(bookmarks: try repository.fetchBookmarks())
+    } catch {}
   }
 
   private func restartObservation() {
     guard phase == .ready else { return }
     startObservation()
+  }
+
+  private func apply(bookmarks updatedBookmarks: [BookmarkedStory]) {
+    bookmarks = updatedBookmarks
+    bookmarkedStoryIDs = Set(updatedBookmarks.map(\.id))
   }
 
   private func apply(stories updatedStories: [Story], source: String) {
