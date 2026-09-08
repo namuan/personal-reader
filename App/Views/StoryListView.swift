@@ -25,8 +25,8 @@ struct StoryListView: View {
           storyCards
         }
       }
-      .navigationTitle(model.currentFeedTitle)
       .toolbar { toolbarContent }
+      .navigationBarTitleDisplayMode(.inline)
       .searchable(text: searchQueryBinding, prompt: "Search stories")
       .onChange(of: model.filteredStories.map(\.id)) { previousIDs, currentIDs in
         logVisibleCardChange(from: previousIDs, to: currentIDs)
