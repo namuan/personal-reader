@@ -17,6 +17,8 @@ struct StoryListView: View {
       Group {
         if model.stories.isEmpty {
           emptyState
+        } else if model.hasActiveSearch && model.filteredStories.isEmpty {
+          searchResultsEmptyState
         } else if model.showUnreadOnly && model.unreadCount == 0 {
           caughtUpState
         } else {
@@ -25,6 +27,7 @@ struct StoryListView: View {
       }
       .navigationTitle(model.currentFeedTitle)
       .toolbar { toolbarContent }
+      .searchable(text: searchQueryBinding, prompt: "Search stories")
       .onChange(of: model.filteredStories.map(\.id)) { previousIDs, currentIDs in
         logVisibleCardChange(from: previousIDs, to: currentIDs)
       }
@@ -180,6 +183,21 @@ struct StoryListView: View {
       "All caught up",
       systemImage: "checkmark.circle",
       description: Text("Every downloaded story has been read.")
+    )
+  }
+
+  private var searchResultsEmptyState: some View {
+    ContentUnavailableView(
+      "No matching stories",
+      systemImage: "magnifyingglass",
+      description: Text("No downloaded stories match your search.")
+    )
+  }
+
+  private var searchQueryBinding: Binding<String> {
+    Binding(
+      get: { model.searchQuery },
+      set: { model.searchQuery = $0 }
     )
   }
 

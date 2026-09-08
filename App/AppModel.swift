@@ -55,9 +55,21 @@ final class AppModel {
     }
   }
 
+  var searchQuery = "" {
+    didSet {
+      guard oldValue != searchQuery else { return }
+      listLogger.info("story search query changed active=\(self.hasActiveSearch, privacy: .public)")
+    }
+  }
+
+  var hasActiveSearch: Bool {
+    !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
   var filteredStories: [Story] {
-    guard showUnreadOnly else { return stories }
-    return stories.filter { !$0.isRead }
+    let unreadFiltered = showUnreadOnly ? stories.filter { !$0.isRead } : stories
+    guard hasActiveSearch else { return unreadFiltered }
+    return unreadFiltered.filter(matchesSearch)
   }
 
   var savedPreferences: UserPreferences {
@@ -596,6 +608,7 @@ final class AppModel {
     hasMoreStories = true
     syncStatus = .idle
     showUnreadOnly = true
+    searchQuery = ""
     scope = .all
     loadFeedSources()
     phase = .setup
@@ -878,7 +891,35 @@ final class AppModel {
     }
   }
 
+  private func matchesSearch(_ story: Story) -> Bool {
+    let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    let sourceTitle =
+      feedSources.first(where: { $0.id == story.sourceId })?.title
+      ?? (story.sourceId == FeedSourceRecord.builtInRedditID() ? "Reddit" : "")
+    return [
+      story.title,
+      visibleText(from: story.contentBody),
+      story.author,
+      story.subreddit,
+      sourceTitle,
+    ].contains { $0.localizedStandardContains(query) }
+  }
+
+  private func visibleText(from html: String) -> String {
+    html
+      .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+      .replacingOccurrences(of: "&nbsp;", with: " ")
+      .replacingOccurrences(of: "&amp;", with: "&")
+      .replacingOccurrences(of: "&quot;", with: "\"")
+      .replacingOccurrences(of: "&#39;", with: "'")
+      .replacingOccurrences(of: "&lt;", with: "<")
+      .replacingOccurrences(of: "&gt;", with: ">")
+      .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
   func startObservation() {
+    loadFeedSources()
     observationCancellable?.cancel()
     let repository = environment.repository
     let enabledIds = enabledSourceIds()
