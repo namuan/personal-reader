@@ -66,7 +66,7 @@ struct FeedManagementView: View {
           Text("RSS feeds")
         } footer: {
           Text(
-            "Personal Reader will fetch each enabled feed on its own schedule and merge the entries with your Reddit private stories."
+            "Add a public HTTPS website to discover its RSS or Atom feeds, or paste a feed URL directly. Personal Reader fetches each enabled feed on its own schedule."
           )
         }
 

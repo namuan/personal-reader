@@ -20,20 +20,34 @@ struct FeedEditorView: View {
   @State private var saveError: String?
   @State private var isTesting = false
   @State private var isSaving = false
+  @State private var discoveredFeeds: [DiscoveredFeed] = []
+  @State private var discoveryError: String?
+  @State private var isDiscovering = false
+  @State private var selectedDiscoveredFeedURL: URL?
+  @State private var discoveryID = UUID()
+  @State private var discoveryTask: Task<Void, Never>?
 
   var body: some View {
     NavigationStack {
       Form {
         Section {
-          TextField("https://example.com/feed.xml", text: $url, axis: .vertical)
+          TextField("https://example.com", text: $url, axis: .vertical)
             .keyboardType(.URL)
             .autocorrectionDisabled()
             .textInputAutocapitalization(.never)
             .disabled(isEditingExisting)
         } header: {
-          Text("Feed URL")
+          Text(isEditingExisting ? "Feed URL" : "Website or feed URL")
         } footer: {
-          Text("Use the public Atom or RSS URL of the site. HTTPS is required.")
+          Text(
+            isEditingExisting
+              ? "Use the public Atom or RSS URL of the site. HTTPS is required."
+              : "Enter a public HTTPS website to find its feeds, or paste a feed URL directly."
+          )
+        }
+
+        if !isEditingExisting {
+          discoverySection
         }
 
         Section {
@@ -111,6 +125,9 @@ struct FeedEditorView: View {
         }
       }
       .onAppear(perform: loadInitialValues)
+      .onDisappear {
+        discoveryTask?.cancel()
+      }
     }
   }
 
@@ -123,6 +140,55 @@ struct FeedEditorView: View {
     !url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
+  @ViewBuilder
+  private var discoverySection: some View {
+    Section {
+      Button {
+        discoverFeeds()
+      } label: {
+        Label("Find feeds", systemImage: "magnifyingglass")
+      }
+      .disabled(isDiscovering || url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+      if isDiscovering {
+        HStack(spacing: 8) {
+          ProgressView()
+          Text("Looking for feeds…")
+        }
+        .font(.footnote)
+        .foregroundStyle(.secondary)
+      }
+
+      if let discoveryError {
+        Label(discoveryError, systemImage: "exclamationmark.triangle")
+          .font(.footnote)
+          .foregroundStyle(.orange)
+      }
+
+      if !isDiscovering, discoveryError == nil, !discoveredFeeds.isEmpty {
+        ForEach(discoveredFeeds) { feed in
+          Button {
+            selectDiscoveredFeed(feed)
+          } label: {
+            DiscoveredFeedRow(
+              feed: feed,
+              isSelected: selectedDiscoveredFeedURL == feed.url
+            )
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("\(feed.title), \(feed.entryCount) entries")
+          .accessibilityAddTraits(selectedDiscoveredFeedURL == feed.url ? .isSelected : [])
+        }
+      }
+    } header: {
+      Text("Find feeds")
+    } footer: {
+      if !isDiscovering, discoveryError == nil, discoveredFeeds.isEmpty {
+        Text("No feeds found yet. You can still test and add a feed URL directly.")
+      }
+    }
+  }
+
   private func loadInitialValues() {
     if case .edit(let source) = mode {
       url = source.url
@@ -130,6 +196,39 @@ struct FeedEditorView: View {
       refreshInterval = source.refreshInterval
       isEnabled = source.isEnabled
     }
+  }
+
+  private func discoverFeeds() {
+    discoveryTask?.cancel()
+    let requestID = UUID()
+    discoveryID = requestID
+    isDiscovering = true
+    discoveryError = nil
+    discoveredFeeds = []
+    selectedDiscoveredFeedURL = nil
+    discoveryTask = Task {
+      let outcome = await model.discoverFeeds(from: url)
+      guard !Task.isCancelled, discoveryID == requestID else { return }
+      isDiscovering = false
+      switch outcome {
+      case .found(let feeds):
+        discoveredFeeds = feeds
+        if feeds.isEmpty {
+          discoveryError = "No public RSS or Atom feeds were found on that website."
+        }
+      case .failed(let message):
+        discoveryError = message
+      }
+      discoveryTask = nil
+    }
+  }
+
+  private func selectDiscoveredFeed(_ feed: DiscoveredFeed) {
+    selectedDiscoveredFeedURL = feed.url
+    url = feed.url.absoluteString
+    title = feed.title
+    testOutcome = nil
+    saveError = nil
   }
 
   private func runTest() {
@@ -172,5 +271,37 @@ struct FeedEditorView: View {
       isSaving = false
       saveError = message
     }
+  }
+}
+
+private struct DiscoveredFeedRow: View {
+  let feed: DiscoveredFeed
+  let isSelected: Bool
+
+  var body: some View {
+    HStack(alignment: .top, spacing: 12) {
+      Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+        .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+        .padding(.top, 2)
+
+      VStack(alignment: .leading, spacing: 4) {
+        Text(feed.title)
+          .font(.headline)
+          .foregroundStyle(.primary)
+        Text(feed.url.host ?? feed.url.absoluteString)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        Text("\(feed.entryCount) entries")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+        ForEach(feed.samples) { sample in
+          Text(sample.title)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+        }
+      }
+    }
+    .padding(.vertical, 4)
   }
 }

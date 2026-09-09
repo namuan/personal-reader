@@ -9,6 +9,7 @@ enum TestEnvironment {
     let sessionConfiguration = URLSessionConfiguration.ephemeral
     let feedClient = RedditFeedClient(session: URLSession(configuration: sessionConfiguration))
     let rssClient = SyndicationFeedClient(session: URLSession(configuration: sessionConfiguration))
+    let websiteClient = WebsiteClient(session: URLSession(configuration: sessionConfiguration))
     let parser = RedditRSSParser()
     let redditSyncService = StorySyncService(
       feedClient: feedClient,
@@ -40,6 +41,7 @@ enum TestEnvironment {
       librarySyncService: librarySyncService,
       feedClient: feedClient,
       rssClient: rssClient,
+      websiteClient: websiteClient,
       parser: parser,
       tokenStore: tokenStore,
       preferences: preferences

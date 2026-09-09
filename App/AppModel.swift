@@ -279,6 +279,11 @@ final class AppModel {
     case failed(String)
   }
 
+  enum FeedDiscoveryOutcome: Equatable {
+    case found([DiscoveredFeed])
+    case failed(String)
+  }
+
   func testConnection(
     username: String,
     token: String,
@@ -312,6 +317,29 @@ final class AppModel {
       return .failed("The feed response could not be read.")
     } catch {
       return .failed("Connection failed. Check your network and try again.")
+    }
+  }
+
+  func discoverFeeds(from websiteAddress: String) async -> FeedDiscoveryOutcome {
+    let trimmed = websiteAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+      return .failed("Enter a website address.")
+    }
+    guard let url = URL(string: trimmed), url.scheme?.lowercased() == "https" else {
+      return .failed("Website address must start with https://")
+    }
+    do {
+      let service = WebsiteFeedDiscoveryService(
+        websiteClient: environment.websiteClient,
+        feedClient: environment.rssClient
+      )
+      return .found(try await service.discover(from: url))
+    } catch let error as WebsiteFetchError {
+      return .failed(Self.websiteDiscoveryMessage(for: error))
+    } catch is CancellationError {
+      return .failed("Feed discovery was cancelled.")
+    } catch {
+      return .failed("Could not inspect that website. Check the address and your network.")
     }
   }
 
@@ -795,6 +823,27 @@ final class AppModel {
       return "Already syncing."
     case .notDue:
       return "Refresh not yet due."
+    }
+  }
+
+  nonisolated static func websiteDiscoveryMessage(for error: WebsiteFetchError) -> String {
+    switch error {
+    case .insecureScheme, .insecureRedirect:
+      return "Website address must start with https://"
+    case .responseTooLarge:
+      return "That website is too large to inspect for feeds."
+    case .invalidResponse:
+      return "The response from that website was not recognized."
+    case .offline:
+      return "Offline."
+    case .timedOut:
+      return "The website request timed out."
+    case .cancelled:
+      return "Feed discovery was cancelled."
+    case .unexpectedStatus(let status):
+      return "Unexpected website response (HTTP \(status))."
+    case .transportFailure:
+      return "Network error."
     }
   }
 

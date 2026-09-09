@@ -9,6 +9,7 @@ struct AppEnvironment: Sendable {
   let librarySyncService: LibrarySyncService
   let feedClient: any FeedFetching
   let rssClient: SyndicationFeedClient
+  let websiteClient: WebsiteClient
   let parser: any StoryParsing
   let tokenStore: KeychainTokenStore
   let preferences: PreferencesStore
@@ -23,6 +24,7 @@ struct AppEnvironment: Sendable {
     sessionConfiguration.urlCache = nil
     let redditClient = RedditFeedClient(session: URLSession(configuration: sessionConfiguration))
     let rssClient = SyndicationFeedClient(session: URLSession(configuration: sessionConfiguration))
+    let websiteClient = WebsiteClient(session: URLSession(configuration: sessionConfiguration))
     let parser = RedditRSSParser()
 
     let redditSyncService = StorySyncService(
@@ -61,6 +63,7 @@ struct AppEnvironment: Sendable {
       librarySyncService: librarySyncService,
       feedClient: redditClient,
       rssClient: rssClient,
+      websiteClient: websiteClient,
       parser: parser,
       tokenStore: tokenStore,
       preferences: preferences
