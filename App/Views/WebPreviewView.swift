@@ -63,7 +63,8 @@ private struct SafariPreviewController: UIViewControllerRepresentable {
 
   func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
 
-  final class Coordinator: NSObject, SFSafariViewControllerDelegate, UIGestureRecognizerDelegate {
+  @MainActor
+  final class Coordinator: NSObject, @preconcurrency SFSafariViewControllerDelegate, UIGestureRecognizerDelegate {
     private let onFinish: () -> Void
 
     init(onFinish: @escaping () -> Void) {
