@@ -208,17 +208,26 @@ struct StoryListView: View {
   @ToolbarContentBuilder
   private var toolbarContent: some ToolbarContent {
     ToolbarItem(placement: .topBarLeading) {
-      Picker(
-        "Show",
-        selection: Binding(
-          get: { model.showUnreadOnly },
-          set: { model.showUnreadOnly = $0 }
+      // Keep the toolbar item compact so the navigation bar can size its glass background.
+      Menu {
+        Picker(
+          "Show",
+          selection: Binding(
+            get: { model.showUnreadOnly },
+            set: { model.showUnreadOnly = $0 }
+          )
+        ) {
+          Text("All").tag(false)
+          Text("Unread").tag(true)
+        }
+        .pickerStyle(.inline)
+      } label: {
+        Image(
+          systemName: model.showUnreadOnly
+            ? "line.3.horizontal.decrease.circle.fill"
+            : "line.3.horizontal.decrease.circle"
         )
-      ) {
-        Text("All").tag(false)
-        Text("Unread").tag(true)
       }
-      .pickerStyle(.segmented)
       .accessibilityLabel("Filter stories")
       .accessibilityValue(model.showUnreadOnly ? "Unread only" : "All stories")
     }
