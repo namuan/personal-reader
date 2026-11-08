@@ -46,16 +46,44 @@ private struct SafariPreviewController: UIViewControllerRepresentable {
     let controller = SFSafariViewController(url: url, configuration: configuration)
     controller.dismissButtonStyle = .close
     controller.delegate = context.coordinator
+
+    // SwiftUI presents this controller inside a sheet, so provide the edge dismissal
+    // explicitly rather than relying on Safari's own modal presentation gestures.
+    let dismissSwipe = UIScreenEdgePanGestureRecognizer(
+      target: context.coordinator,
+      action: #selector(Coordinator.handleDismissSwipe(_:))
+    )
+    dismissSwipe.edges = .left
+    dismissSwipe.cancelsTouchesInView = false
+    dismissSwipe.delegate = context.coordinator
+    controller.view.addGestureRecognizer(dismissSwipe)
+
     return controller
   }
 
   func updateUIViewController(_ uiViewController: SFSafariViewController, context: Context) {}
 
-  final class Coordinator: NSObject, SFSafariViewControllerDelegate {
+  final class Coordinator: NSObject, SFSafariViewControllerDelegate, UIGestureRecognizerDelegate {
     private let onFinish: () -> Void
 
     init(onFinish: @escaping () -> Void) {
       self.onFinish = onFinish
+    }
+
+    @objc func handleDismissSwipe(_ recognizer: UIScreenEdgePanGestureRecognizer) {
+      guard recognizer.state == .ended, let view = recognizer.view else { return }
+      let translation = recognizer.translation(in: view)
+      // Require a deliberate horizontal swipe; short or cancelled drags stay in Safari.
+      guard translation.x >= 80, translation.x > abs(translation.y) * 1.5 else { return }
+      onFinish()
+    }
+
+    func gestureRecognizer(
+      _ gestureRecognizer: UIGestureRecognizer,
+      shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+      // Let Safari continue handling page scrolling and its own navigation gestures.
+      true
     }
 
     func safariViewControllerDidFinish(_ controller: SFSafariViewController) {
