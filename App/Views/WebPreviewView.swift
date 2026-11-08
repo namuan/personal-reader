@@ -49,11 +49,10 @@ private struct SafariPreviewController: UIViewControllerRepresentable {
 
     // SwiftUI presents this controller inside a sheet, so provide the edge dismissal
     // explicitly rather than relying on Safari's own modal presentation gestures.
-    let dismissSwipe = UIScreenEdgePanGestureRecognizer(
+    let dismissSwipe = UIPanGestureRecognizer(
       target: context.coordinator,
       action: #selector(Coordinator.handleDismissSwipe(_:))
     )
-    dismissSwipe.edges = .left
     dismissSwipe.cancelsTouchesInView = false
     dismissSwipe.delegate = context.coordinator
     controller.view.addGestureRecognizer(dismissSwipe)
@@ -71,7 +70,17 @@ private struct SafariPreviewController: UIViewControllerRepresentable {
       self.onFinish = onFinish
     }
 
-    @objc func handleDismissSwipe(_ recognizer: UIScreenEdgePanGestureRecognizer) {
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+      guard let recognizer = gestureRecognizer as? UIPanGestureRecognizer,
+        let view = recognizer.view
+      else { return true }
+      let location = recognizer.location(in: view)
+      let velocity = recognizer.velocity(in: view)
+      let edgeWidth = max(44, view.safeAreaInsets.left + 16)
+      return location.x <= edgeWidth && velocity.x > abs(velocity.y) * 1.5
+    }
+
+    @objc func handleDismissSwipe(_ recognizer: UIPanGestureRecognizer) {
       guard recognizer.state == .ended, let view = recognizer.view else { return }
       let translation = recognizer.translation(in: view)
       // Require a deliberate horizontal swipe; short or cancelled drags stay in Safari.
